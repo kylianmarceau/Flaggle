@@ -1,6 +1,7 @@
 .DS_Store
 *.log
 node_modules/
+dist/
 
 # Local development and generated scratch files
 i-want-to-create-an-html/work/
