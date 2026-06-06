@@ -1,9 +1,5 @@
 @media (max-width: 1080px) {
   .app-shell { width: min(100% - 24px, 940px); }
-  .play-layout { grid-template-columns: 1fr; }
-  .answer-panel { justify-content: start; }
-  .flag-card { min-height: 460px; }
-  .flag-slot { min-height: 330px; }
   .stats-panel { grid-template-columns: repeat(5, auto); }
   .progress-card { grid-column: 1 / -1; }
 }
@@ -15,13 +11,13 @@
   .mode-description { text-align: left; }
   .mode-select-row { justify-content: stretch; flex-direction: column; }
   .mode-select { width: 100%; }
-  .stats-panel { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .secondary-row { grid-template-columns: 1fr; }
-  .atlas-open { width: 100%; min-height: 42px; }
+  .stats-panel { grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
+  .progress-card { grid-column: 1 / -1; }
+  .atlas-open { width: 100%; min-height: 38px; }
   .stat-card { justify-content: space-between; }
-  .flag-card { min-height: 340px; }
-  .flag-slot { min-height: 230px; }
-  .input-row, .actions { grid-template-columns: 1fr; display: grid; }
+  .input-row { grid-template-columns: 1fr auto; }
+  .actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+  .actions .atlas-shell { margin-left: 0; }
   button { width: 100%; }
   .atlas-drawer {
     top: auto;

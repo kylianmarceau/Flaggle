@@ -9,7 +9,7 @@ body {
     radial-gradient(circle at 12% -6%, rgba(184, 227, 109, 0.12), transparent 26rem),
     radial-gradient(circle at 90% 6%, rgba(187, 130, 86, 0.1), transparent 24rem),
     linear-gradient(180deg, #060806, var(--bg));
-  overflow-x: hidden;
+  overflow: hidden;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

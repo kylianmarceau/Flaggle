@@ -1,8 +1,9 @@
 .app-shell {
   width: min(1180px, calc(100% - clamp(24px, 5vw, 56px)));
-  min-height: 100vh;
+  height: 100dvh;
   margin: 0 auto;
-  padding: clamp(18px, 3vw, 34px) 0;
+  padding: clamp(12px, 2dvh, 22px) 0;
+  display: flex;
 }
 
 .brand-lockup {
@@ -37,11 +38,19 @@
 
 .actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
-.game-screen { animation: enter 180ms ease both; }
+.game-screen {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  animation: enter 180ms ease both;
+}
 
 @keyframes enter {
   from { opacity: 0; }

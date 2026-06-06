@@ -1,18 +1,11 @@
-.secondary-row {
-  width: min(860px, 100%);
-  display: flex;
-  justify-content: center;
-  margin: 10px auto 0;
-}
-
 .atlas-shell {
   display: block;
-  height: 100%;
+  margin-left: auto;
 }
 
 .atlas-open {
   min-width: 96px;
-  height: 100%;
+  height: 40px;
   align-self: stretch;
 }
 
