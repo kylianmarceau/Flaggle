@@ -22,11 +22,11 @@ export function createFlagView(): FlagView {
   return { element, imageSlot, status };
 }
 
-export function updateFlagView(view: FlagView, country: Country | null, roundNumber: number): void {
-  view.status.textContent = country ? `Round ${roundNumber}` : "Complete";
+export function updateFlagView(view: FlagView, country: Country | null, roundNumber: number, status: "idle" | "playing" | "complete" = country ? "playing" : "complete"): void {
+  view.status.textContent = status === "idle" ? "Ready" : country ? `Round ${roundNumber}` : "Complete";
 
   if (!country) {
-    view.imageSlot.replaceChildren(el("div", { className: "complete-card", text: "World complete" }));
+    view.imageSlot.replaceChildren(el("div", { className: "complete-card", text: status === "idle" ? "Start timed rush" : "World complete" }));
     return;
   }
 

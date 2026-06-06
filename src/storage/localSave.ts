@@ -7,6 +7,7 @@ export const SOLO_SAVE_KEY = "locale:solo:v1";
 
 export interface SoloSaveV1 {
   readonly version: 1;
+  readonly status?: GameState["status"];
   readonly modeId: string;
   readonly seed: string;
   readonly currentCountryCode: string | null;
@@ -48,6 +49,7 @@ export function createSoloSave(index: CountryIndex, state: GameState, updatedAt:
   const currentCountry = state.currentCountryId === null ? null : index.byId[state.currentCountryId] ?? null;
 
   return {
+    status: state.status,
     version: 1,
     modeId: state.modeId,
     seed: state.seed,
@@ -98,11 +100,13 @@ export function hydrateGameState(index: CountryIndex, mode: GameMode, save: Solo
 
   if (poolCountryIds.length === 0) return null;
   const timeLimitSeconds = save.timeLimitSeconds ?? mode.durationSeconds ?? null;
-  const timeRemainingMs = timeLimitSeconds === null ? null : Math.max(0, timeLimitSeconds * 1000 - (Date.now() - save.startedAt));
+  const savedStatus = save.status ?? (save.currentCountryCode === null && mode.startsPaused ? "idle" : undefined);
+  const timeRemainingMs =
+    timeLimitSeconds === null ? null : savedStatus === "idle" ? timeLimitSeconds * 1000 : Math.max(0, timeLimitSeconds * 1000 - (Date.now() - save.startedAt));
 
 
   return {
-    status: currentCountryId === null || timeRemainingMs === 0 ? "complete" : "playing",
+    status: savedStatus ?? (currentCountryId === null || timeRemainingMs === 0 ? "complete" : "playing"),
     modeId: mode.id,
     seed: save.seed,
     currentCountryId,
@@ -118,8 +122,8 @@ export function hydrateGameState(index: CountryIndex, mode: GameMode, save: Solo
     hintLevel: 0,
     timeLimitSeconds,
     timeRemainingMs,
-    startedAt: save.startedAt,
-    endedAt: currentCountryId === null || timeRemainingMs === 0 ? save.updatedAt : null,
+    startedAt: savedStatus === "idle" ? null : save.startedAt,
+    endedAt: savedStatus === "idle" ? null : currentCountryId === null || timeRemainingMs === 0 ? save.updatedAt : null,
     lastResult: null,
     queue: queueCountryIds.length > 0 ? { remainingCountryIds: queueCountryIds } : createRoundQueue([], save.seed),
     poolCountryIds,

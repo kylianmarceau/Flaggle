@@ -80,6 +80,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     attrs: { id: "guess-input", name: "guess", type: "text", autocomplete: "off", autocapitalize: "words", spellcheck: "false", placeholder: "e.g. Brazil, Japan, ZA..." },
   });
   const submitButton = el("button", { className: "primary-action", text: "Lock in", attrs: { type: "submit" } });
+  const startButton = el("button", { className: "primary-action start-action", text: "Start timed rush", attrs: { type: "button" } });
   const hintButton = el("button", { className: "secondary-action", text: "Hint", attrs: { type: "button" } });
   const skipButton = el("button", { className: "secondary-action", text: "Skip", attrs: { type: "button" } });
   const resetButton = el("button", { className: "ghost-action", text: "Restart", attrs: { type: "button" } });
@@ -128,8 +129,9 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     const state = engine.getState();
     const current = getCurrentCountry(countryIndex, state);
     updateStatsView(stats, countryIndex, state);
-    updateFlagView(flag, current, state.roundNumber);
+    updateFlagView(flag, current, state.roundNumber, state.status);
     updateAtlasView(atlas, countries, state.guessedCountryIds);
+    startButton.hidden = state.status !== "idle";
     input.disabled = state.status !== "playing";
     submitButton.disabled = state.status !== "playing";
     hintButton.disabled = state.status !== "playing" || !mode.hints.enabled;
@@ -172,6 +174,14 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     { signal: controller.signal },
   );
 
+  startButton.addEventListener(
+    "click",
+    () => {
+      dispatchAndRender(engine.dispatch({ type: "START_GAME", modeId: mode.id, seed: engine.getState().seed, now: Date.now() }));
+      showFeedback(feedback, "Timed Rush started. Two minutes.", "neutral");
+    },
+    { signal: controller.signal },
+  );
   hintButton.addEventListener("click", () => dispatchAndRender(engine.dispatch({ type: "REQUEST_HINT", now: Date.now() })), { signal: controller.signal });
   skipButton.addEventListener("click", () => dispatchAndRender(engine.dispatch({ type: "SKIP_ROUND", now: Date.now() })), { signal: controller.signal });
   resetButton.addEventListener(
@@ -232,7 +242,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
           el("aside", {
             className: "answer-panel",
             children: [
-              el("div", { className: "panel-title", children: [el("h2", { text: "Name the place" })] }),
+              startButton,
               form,
               stats.element,
               feedback.element,
@@ -246,7 +256,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   });
 
   render();
-  showFeedback(feedback, initialState.lastResult?.message ?? "First flag is ready. Type the country when you know it.", "neutral");
+  showFeedback(feedback, initialState.lastResult?.message ?? (initialState.status === "idle" ? "Timed Rush is ready. Press start to reveal the first flag." : "First flag is ready. Type the country when you know it."), "neutral");
 
   return {
     element,

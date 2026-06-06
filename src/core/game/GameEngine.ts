@@ -74,14 +74,15 @@ function createInitialState(
   mode: GameMode,
   seed: string,
   now: number,
-  modeOptions?: ModeOptions,
+  modeOptions: ModeOptions | undefined,
+  start = !mode.startsPaused,
 ): GameState {
   const poolCountryIds = mode.createCountryPool(index.countries, modeOptions);
-  const queue = createRoundQueue(poolCountryIds, seed);
-  const next = takeNextCountry(queue, new Set<CountryId>());
-
+  const initialQueue = createRoundQueue(poolCountryIds, seed);
+  const next = start ? takeNextCountry(initialQueue, new Set<CountryId>()) : { countryId: null, queue: initialQueue };
+  const status = start ? (next.countryId === null ? "complete" : "playing") : "idle";
   return {
-    status: next.countryId === null ? "complete" : "playing",
+    status,
     modeId: mode.id,
     seed,
     currentCountryId: next.countryId,
@@ -97,8 +98,8 @@ function createInitialState(
     timeLimitSeconds: mode.durationSeconds ?? null,
     timeRemainingMs: mode.durationSeconds === undefined ? null : mode.durationSeconds * 1000,
     hintLevel: 0,
-    startedAt: now,
-    endedAt: next.countryId === null ? now : null,
+    startedAt: start ? now : null,
+    endedAt: status === "complete" ? now : null,
     lastResult: null,
     queue: next.queue,
     poolCountryIds,
@@ -148,7 +149,7 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
       const events: GameEvent[] = [];
 
       if (command.type === "START_GAME" || command.type === "RESET_GAME") {
-        state = createInitialState(countryIndex, mode, command.type === "START_GAME" ? command.seed : seed, command.now, modeOptions);
+        state = createInitialState(countryIndex, mode, command.type === "START_GAME" ? command.seed : seed, command.now, modeOptions, command.type === "START_GAME");
         if (state.currentCountryId !== null) events.push({ type: "GAME_STARTED", currentCountryId: state.currentCountryId });
         if (command.type === "RESET_GAME") events.push({ type: "GAME_RESET" });
         return events;
@@ -200,6 +201,8 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
       }
 
       if (command.type !== "SUBMIT_GUESS") return events;
+
+      if (normalizeAnswerVariants(command.value).length === 0) return events;
 
       if (acceptedByMode(currentCountry, command.value, mode, command.auto ?? false)) {
         const guessedCountryIds = new Set(state.guessedCountryIds);

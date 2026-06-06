@@ -5,6 +5,7 @@ export const timedMode: GameMode = {
   label: "Timed Rush",
   description: "Two minutes on the clock. Score quickly before the run ends.",
   durationSeconds: 120,
+  startsPaused: true,
   allowSkip: true,
   acceptCountryCodes: true,
   acceptAliases: true,

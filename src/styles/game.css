@@ -216,5 +216,10 @@
   line-height: 1.4;
 }
 
+.start-action {
+  min-height: 62px;
+  font-size: 1.05rem;
+}
+
 .feedback.good { color: var(--good); border-color: rgba(152, 223, 116, 0.42); background: rgba(152,223,116,0.08); }
 .feedback.bad { color: var(--bad); border-color: rgba(238,125,107,0.45); background: rgba(238,125,107,0.08); }

@@ -42,6 +42,21 @@ describe("game engine", () => {
     expect(state.wrongAnswers).toBe(0);
   });
 
+  it("ignores empty submitted guesses without affecting attempts or streak", () => {
+    const { countryIndex, engine } = createFixtureGame();
+    const current = getCurrentCountry(countryIndex, engine.getState());
+
+    engine.dispatch({ type: "SUBMIT_GUESS", value: current!.name, now: 1040 });
+    const streakState = engine.getState();
+    const events = engine.dispatch({ type: "SUBMIT_GUESS", value: "   ", now: 1050 });
+    const state = engine.getState();
+
+    expect(events).toEqual([]);
+    expect(state.attempts).toBe(streakState.attempts);
+    expect(state.wrongAnswers).toBe(streakState.wrongAnswers);
+    expect(state.streak).toBe(streakState.streak);
+  });
+
   it("returns a country fact before the direct name-shape hint", () => {
     const { countryIndex, engine } = createFixtureGame();
     const current = getCurrentCountry(countryIndex, engine.getState());
@@ -82,6 +97,23 @@ describe("game engine", () => {
     expect(events.map((event) => event.type)).toEqual(["TIMER_EXPIRED", "GAME_COMPLETED"]);
     expect(engine.getState().status).toBe("complete");
     expect(engine.getState().timeRemainingMs).toBe(0);
+  });
+
+  it("keeps timed rush idle until start is pressed", () => {
+    const countryIndex = indexCountries(fixtureCountries);
+    const mode = { ...classicMode, id: "timed-idle", durationSeconds: 120, startsPaused: true };
+    const engine = createGameEngine({ countryIndex, mode, seed: "idle-timer", now: 1000 });
+
+    expect(engine.getState().status).toBe("idle");
+    expect(engine.getState().currentCountryId).toBeNull();
+    expect(engine.getState().timeRemainingMs).toBe(120000);
+
+    const events = engine.dispatch({ type: "START_GAME", modeId: mode.id, seed: "idle-timer", now: 2000 });
+
+    expect(events[0]?.type).toBe("GAME_STARTED");
+    expect(engine.getState().status).toBe("playing");
+    expect(engine.getState().currentCountryId).not.toBeNull();
+    expect(engine.getState().timeRemainingMs).toBe(120000);
   });
 
   it("keeps the flag live after a wrong answer", () => {
