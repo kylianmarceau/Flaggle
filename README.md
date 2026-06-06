@@ -33,6 +33,7 @@ https://github.com/kylianmarceau/Flaggle/releases
 - `app.js` - game logic
 - `data/countries.js` - country names, aliases, continents, and flag paths
 - `assets/flags/` - SVG flag assets
+- `customHttp.yml` - AWS Amplify cache headers for static assets
 
 ## Publishing With GitHub Pages
 

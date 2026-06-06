@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.2
+
+- Preloads and decodes flag images in the browser for smoother flag transitions.
+- Adds Amplify custom cache headers for long-lived SVG flag caching.
+
 ## v1.1.1
 
 - Changed hints to use objective country-name clues.
