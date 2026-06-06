@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added a Country Guesser mode with a local world map and country highlights.
+- Added local boundary data for all 196 playable countries.
+- Added mode switching between Flag Rush and Country Guesser.
+
 ## v1.1.2
 
 - Preloads and decodes flag images in the browser for smoother flag transitions.

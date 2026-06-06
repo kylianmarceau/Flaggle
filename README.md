@@ -1,6 +1,6 @@
 # Flaggle
 
-Flaggle is a browser-based country flag guessing game. A flag appears on screen and the player types the matching country name. Correct guesses are tracked in a continent-grouped table with blank slots for missing countries.
+Flaggle is a browser-based geography guessing game. Players can switch between a flag guessing mode and a country map mode, with correct guesses tracked in a continent-grouped table with blank slots for missing countries.
 
 ## Play
 
@@ -16,6 +16,7 @@ Then visit `http://localhost:8000`.
 
 - 196 playable countries
 - Local SVG flag assets in `assets/flags/`
+- Country Guesser mode with local world-map boundary data
 - Auto-submit when the full displayed country name is typed
 - Hint button with first-letter, letter-count, and word-count clues
 - Continent-grouped progress table with blank slots for missing countries
@@ -32,6 +33,7 @@ https://github.com/kylianmarceau/Flaggle/releases
 - `styles.css` - visual design
 - `app.js` - game logic
 - `data/countries.js` - country names, aliases, continents, and flag paths
+- `data/world-map.js` - local country boundary data for the map mode
 - `assets/flags/` - SVG flag assets
 - `customHttp.yml` - AWS Amplify cache headers for static assets
 

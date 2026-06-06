@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Country Flag Guessing Game</title>
+  <title>Flaggle</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,8 +14,12 @@
           <div class="logo-mark" aria-hidden="true">🌍</div>
           <p class="eyebrow">GeoQuest Arcade</p>
         </div>
-        <h1><span class="title-gradient">Flag Rush</span><br>World Challenge</h1>
-        <p class="subcopy">A faster, punchier take on the country flag guessing game. Decode the flag, build your streak, and fill the continent board.</p>
+        <h1><span class="title-gradient" id="modeTitle">Flag Rush</span><br>World Challenge</h1>
+        <p class="subcopy" id="modeCopy">A faster, punchier take on the country flag guessing game. Decode the flag, build your streak, and fill the continent board.</p>
+        <div class="mode-switcher" role="tablist" aria-label="Game modes">
+          <button class="mode-tab is-active" type="button" role="tab" aria-selected="true" data-mode="flag">Flag Rush</button>
+          <button class="mode-tab" type="button" role="tab" aria-selected="false" data-mode="map">Country Guesser</button>
+        </div>
       </div>
       <div class="stat-rail" aria-label="Game statistics">
         <div class="stat-card">
@@ -37,7 +41,7 @@
       </div>
     </header>
 
-    <section class="game-shell" aria-label="Country flag guessing game">
+    <section class="game-shell mode-panel is-active" data-mode-panel="flag" aria-label="Country flag guessing game">
       <div class="flag-stage">
         <div class="stage-topline">
           <span class="status-pill" id="statusPill">Mystery flag selected</span>
@@ -80,6 +84,53 @@
           <button class="secondary" type="button" id="hintButton">Reveal hint</button>
           <button class="secondary" type="button" id="skipButton">Next flag</button>
           <button class="secondary" type="button" id="resetButton">Restart</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="map-shell mode-panel" data-mode-panel="map" aria-label="Country map guessing game" hidden>
+      <div class="map-stage">
+        <div class="stage-topline">
+          <span class="status-pill" id="mapStatusPill">World map ready</span>
+          <span class="stage-number" id="mapLoadedText">196 countries mapped</span>
+        </div>
+        <div class="world-map-wrap" id="worldMapWrap" aria-live="polite">
+          <div class="map-loading">Loading world map...</div>
+        </div>
+        <div class="stage-footer">
+          <span class="stage-tip">Correct country names light up on the map.</span>
+          <span class="stage-tip">Progress saves until Restart is pressed.</span>
+        </div>
+      </div>
+
+      <aside class="answer-panel">
+        <div class="panel-title">
+          <h2>Name every country</h2>
+          <p>Type a country name and it will be highlighted when the game detects a match.</p>
+        </div>
+
+        <div class="progress-card" aria-label="Map game progress">
+          <div class="progress-meta">
+            <span>Map completion</span>
+            <span id="mapProgressText">0 guessed</span>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <div class="progress-fill" id="mapProgressFill"></div>
+          </div>
+        </div>
+
+        <form id="mapGuessForm" autocomplete="off">
+          <label for="mapGuessInput">Country name</label>
+          <div class="input-row">
+            <input id="mapGuessInput" name="mapGuess" type="text" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="e.g. Canada, Kenya, Taiwan..." required>
+            <button type="submit">Check</button>
+          </div>
+        </form>
+
+        <p class="feedback" id="mapFeedback">Start anywhere on the globe.</p>
+
+        <div class="actions map-actions">
+          <button class="secondary" type="button" id="mapResetButton">Restart map</button>
         </div>
       </aside>
     </section>
