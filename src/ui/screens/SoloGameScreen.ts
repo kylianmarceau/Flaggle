@@ -3,7 +3,7 @@ import { getCurrentCountry, type GameEngine, type GameEvent, type GameState } fr
 import type { GameMode, GameModeId } from "../../core/modes";
 import type { Screen } from "../../app/router";
 import { el } from "../dom/createElement";
-import { createBoardView, revealCountryOnBoard, resetBoardView, updateContinentCounts, type BoardView } from "../dom/renderBoard";
+import { createAtlasView, setAtlasOpen, updateAtlasView, type AtlasView } from "../dom/renderAtlas";
 import { createFeedbackView, showFeedback, type FeedbackView } from "../dom/renderFeedback";
 import { createFlagView, updateFlagView, type FlagView } from "../dom/renderFlag";
 import { createStatsView, updateStatsView, type StatsView } from "../dom/renderStats";
@@ -22,7 +22,7 @@ interface SoloViews {
   readonly stats: StatsView;
   readonly flag: FlagView;
   readonly feedback: FeedbackView;
-  readonly board: BoardView;
+  readonly atlas: AtlasView;
 }
 
 function visibleCountries(index: CountryIndex, state: GameState): readonly Country[] {
@@ -34,10 +34,7 @@ function applyEvents(events: readonly GameEvent[], views: SoloViews, index: Coun
   for (const event of events) {
     if (event.type === "GUESS_CORRECT") {
       const country = index.byId[event.countryId];
-      if (country) {
-        revealCountryOnBoard(views.board, country);
-        showFeedback(views.feedback, `Correct: ${country.name}. +${event.points} points.`, "good");
-      }
+      if (country) showFeedback(views.feedback, `Correct: ${country.name}. +${event.points} points.`, "good");
       continue;
     }
 
@@ -70,8 +67,8 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   const stats = createStatsView();
   const flag = createFlagView();
   const feedback = createFeedbackView();
-  const board = createBoardView(countries);
-  const views: SoloViews = { stats, flag, feedback, board };
+  const atlas = createAtlasView(countries);
+  const views: SoloViews = { stats, flag, feedback, atlas };
   const input = el("input", {
     attrs: { id: "guess-input", name: "guess", type: "text", autocomplete: "off", autocapitalize: "words", spellcheck: "false", placeholder: "e.g. Brazil, Japan, ZA..." },
   });
@@ -125,7 +122,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     const current = getCurrentCountry(countryIndex, state);
     updateStatsView(stats, countryIndex, state);
     updateFlagView(flag, current, state.roundNumber);
-    updateContinentCounts(board, countries, state.guessedCountryIds);
+    updateAtlasView(atlas, countries, state.guessedCountryIds);
     input.disabled = state.status !== "playing";
     submitButton.disabled = state.status !== "playing";
     hintButton.disabled = state.status !== "playing" || !mode.hints.enabled;
@@ -164,7 +161,8 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   resetButton.addEventListener(
     "click",
     () => {
-      resetBoardView(board);
+      setAtlasOpen(atlas, false);
+      updateAtlasView(atlas, countries, new Set());
       options.onReset();
       dispatchAndRender(engine.dispatch({ type: "RESET_GAME", now: Date.now() }));
       showFeedback(feedback, "Fresh run started.", "neutral");
@@ -188,10 +186,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     { signal: controller.signal },
   );
 
-  for (const countryId of initialState.guessedCountryIds) {
-    const country = countryIndex.byId[countryId];
-    if (country) revealCountryOnBoard(board, country);
-  }
+  updateAtlasView(atlas, countries, initialState.guessedCountryIds);
   const logo = el("div", {
     className: "brand-lockup compact",
     children: [
@@ -200,19 +195,9 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     ],
   });
 
-  const boardToggle = el("button", { className: "board-toggle", text: "Show world board", attrs: { type: "button", "aria-expanded": "false" } });
-  const boardBody = el("div", { className: "board-body", children: [board.element] });
-  boardBody.hidden = true;
-  boardToggle.addEventListener(
-    "click",
-    () => {
-      const expanded = boardBody.hidden;
-      boardBody.hidden = !expanded;
-      boardToggle.textContent = expanded ? "Hide world board" : "Show world board";
-      boardToggle.setAttribute("aria-expanded", String(expanded));
-    },
-    { signal: controller.signal },
-  );
+  atlas.openButton.addEventListener("click", () => setAtlasOpen(atlas, true), { signal: controller.signal });
+  atlas.closeButton.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
+  atlas.overlay.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
 
   const element = el("section", {
     className: "game-screen",
@@ -239,14 +224,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
           }),
         ],
       }),
-      stats.element,
-      el("section", {
-        className: "board-panel",
-        children: [
-          el("div", { className: "board-heading", children: [el("div", { children: [el("h2", { text: "World board" }), el("span", { text: "Optional progress map by region." })] }), boardToggle] }),
-          boardBody,
-        ],
-      }),
+      el("div", { className: "secondary-row", children: [stats.element, atlas.element] }),
     ],
   });
 

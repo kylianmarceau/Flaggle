@@ -10,19 +10,29 @@
 
 @media (max-width: 700px) {
   .app-shell { width: min(100% - 20px, 100%); padding-block: 12px; }
-  .game-header, .board-heading { align-items: stretch; flex-direction: column; }
+  .game-header { align-items: stretch; flex-direction: column; }
   .mode-controls { width: 100%; justify-items: stretch; }
   .mode-description { text-align: left; }
   .mode-select-row { justify-content: stretch; flex-direction: column; }
   .mode-select { width: 100%; }
   .stats-panel { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .secondary-row { grid-template-columns: 1fr; }
+  .atlas-open { width: 100%; min-height: 42px; }
   .stat-card { justify-content: space-between; }
   .flag-card { min-height: 340px; }
   .flag-slot { min-height: 230px; }
   .input-row, .actions { grid-template-columns: 1fr; display: grid; }
   button { width: 100%; }
-  th, td { padding: 10px 11px; }
-  .slot-number { width: 44px; }
+  .atlas-drawer {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: min(78vh, 720px);
+    border-left: 0;
+    border-top: 1px solid var(--border-strong);
+    transform: translateY(100%);
+  }
+  .atlas-shell.open .atlas-drawer { transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {

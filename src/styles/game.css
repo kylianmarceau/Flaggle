@@ -101,7 +101,7 @@
   align-items: stretch;
 }
 
-.flag-card, .answer-panel, .board-panel {
+.flag-card, .answer-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: rgba(17, 23, 16, 0.88);
