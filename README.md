@@ -17,7 +17,7 @@ Then visit `http://localhost:8000`.
 - 196 playable countries
 - Local SVG flag assets in `assets/flags/`
 - Auto-submit when the full displayed country name is typed
-- Hint button with continent and first-letter clues
+- Hint button with first-letter, letter-count, and word-count clues
 - Continent-grouped progress table with blank slots for missing countries
 
 ## Download

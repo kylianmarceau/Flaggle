@@ -166,7 +166,10 @@
     hintButton.addEventListener("click", () => {
       if (!current) return;
       if (statusPill) statusPill.textContent = "Hint unlocked";
-      setFeedback("Hint: " + current.continent + ". Starts with " + current.name.charAt(0) + ".");
+      const letterCount = current.name.replace(/[^A-Za-z]/g, "").length;
+      const wordCount = current.name.split(/\s+/).filter(Boolean).length;
+      const wordLabel = wordCount === 1 ? "word" : "words";
+      setFeedback("Hint: starts with " + current.name.charAt(0) + ", " + letterCount + " letters, " + wordCount + " " + wordLabel + ".");
     });
 
     skipButton.addEventListener("click", () => {

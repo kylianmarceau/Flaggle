@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.1
+
+- Changed hints to use objective country-name clues.
+- Removed continent from hints to avoid ambiguous transcontinental classifications.
+
 ## v1.1.0
 
 - Split the site into standard static web files.
