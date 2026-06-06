@@ -1,9 +1,12 @@
 const COUNTRIES = window.COUNTRIES;
 const TOTAL = COUNTRIES.length;
-const ASSET_VERSION = "2026-06-06-map-mode";
+const ASSET_VERSION = "2026-06-06-map-tools";
 const CONTINENT_ORDER = ["Africa", "Asia", "Europe", "North America", "Oceania", "South America"];
 const MAP_WIDTH = 1000;
 const MAP_HEIGHT = 560;
+const MAP_MIN_ZOOM = 1;
+const MAP_MAX_ZOOM = 6;
+const MAP_ZOOM_STEP = 1.35;
 const MICROSTATE_CODES = new Set(["AD", "AG", "BB", "BH", "DM", "GD", "KN", "LC", "LI", "MC", "MV", "MT", "NR", "SM", "ST", "TV", "VA", "VC"]);
 
 const flagGuessed = new Set();
@@ -20,10 +23,13 @@ let mapCorrectAnswers = 0;
 let flagSelectionToken = 0;
 let mapLoadPromise = null;
 let mapReady = false;
+let mapZoom = 1;
+let missingOverlayVisible = false;
 
 const flagCache = new Map();
 const mapPathsByCode = new Map();
 const mapMarkersByCode = new Map();
+const mapMissingDotsByCode = new Map();
 const mapFeatureMetaByCode = new Map();
 
 const modeTitle = document.getElementById("modeTitle");
@@ -56,6 +62,11 @@ const mapGuessForm = document.getElementById("mapGuessForm");
 const mapGuessInput = document.getElementById("mapGuessInput");
 const mapFeedback = document.getElementById("mapFeedback");
 const mapResetButton = document.getElementById("mapResetButton");
+const mapZoomOutButton = document.getElementById("mapZoomOutButton");
+const mapZoomInButton = document.getElementById("mapZoomInButton");
+const mapZoomResetButton = document.getElementById("mapZoomResetButton");
+const mapZoomReadout = document.getElementById("mapZoomReadout");
+const missingCountriesButton = document.getElementById("missingCountriesButton");
 
 function normalize(value) {
   return String(value)
@@ -146,13 +157,17 @@ function setMode(mode) {
     modeCopy.textContent = "Name every country on the world map. Each correct answer lights up its territory until the whole board is complete.";
     renderGuessed();
     initWorldMap();
-    mapGuessInput.focus();
+    mapGuessInput.focus({ preventScroll: true });
   } else {
     modeTitle.textContent = "Flag Rush";
     modeCopy.textContent = "A faster, punchier take on the country flag guessing game. Decode the flag, build your streak, and fill the continent board.";
     renderGuessed();
     guessInput.focus();
   }
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function preloadFlag(country) {
@@ -405,6 +420,7 @@ function geometryMeta(geometry, code) {
 async function initWorldMap() {
   if (mapReady) {
     syncMapHighlights();
+    updateMapViewBox();
     return;
   }
 
@@ -415,8 +431,10 @@ async function initWorldMap() {
 
     const countryPaths = [];
     const markerDots = [];
+    const missingDots = [];
     mapPathsByCode.clear();
     mapMarkersByCode.clear();
+    mapMissingDotsByCode.clear();
     mapFeatureMetaByCode.clear();
 
     features.forEach((feature) => {
@@ -424,17 +442,19 @@ async function initWorldMap() {
       const meta = geometryMeta(feature.geometry, feature.code);
       mapFeatureMetaByCode.set(feature.code, meta);
       countryPaths.push('<path class="country-shape" data-code="' + feature.code + '" d="' + path + '"><title>' + feature.name + '</title></path>');
+      missingDots.push('<circle class="missing-country-dot" data-code="' + feature.code + '" cx="' + meta.x.toFixed(2) + '" cy="' + meta.y.toFixed(2) + '" r="4.5"><title>' + feature.name + ' missing</title></circle>');
       if (meta.tiny) {
         markerDots.push('<circle class="country-marker" data-code="' + feature.code + '" cx="' + meta.x.toFixed(2) + '" cy="' + meta.y.toFixed(2) + '" r="4"><title>' + feature.name + '</title></circle>');
       }
     });
 
     worldMapWrap.innerHTML =
-      '<svg class="world-map" viewBox="0 0 ' + MAP_WIDTH + " " + MAP_HEIGHT + '" role="img" aria-label="World country map">' +
+      '<svg class="world-map" viewBox="0 0 ' + MAP_WIDTH + " " + MAP_HEIGHT + '" role="img" aria-label="World country map" preserveAspectRatio="xMidYMid meet">' +
       '<rect class="map-ocean" width="' + MAP_WIDTH + '" height="' + MAP_HEIGHT + '"></rect>' +
       '<g class="map-grid" aria-hidden="true">' + buildMapGrid() + '</g>' +
       '<g class="map-countries">' + countryPaths.join("") + '</g>' +
       '<g class="map-markers">' + markerDots.join("") + '</g>' +
+      '<g class="map-missing-dots" aria-hidden="true">' + missingDots.join("") + '</g>' +
       '</svg>';
 
     worldMapWrap.querySelectorAll(".country-shape").forEach((path) => {
@@ -443,16 +463,40 @@ async function initWorldMap() {
     worldMapWrap.querySelectorAll(".country-marker").forEach((marker) => {
       mapMarkersByCode.set(marker.dataset.code, marker);
     });
+    worldMapWrap.querySelectorAll(".missing-country-dot").forEach((dot) => {
+      mapMissingDotsByCode.set(dot.dataset.code, dot);
+    });
 
     mapReady = true;
     if (mapStatusPill) mapStatusPill.textContent = "World map ready";
     if (mapLoadedText) mapLoadedText.textContent = TOTAL + " countries mapped";
+    updateMapViewBox();
     syncMapHighlights();
   } catch (error) {
     worldMapWrap.innerHTML = '<div class="map-loading">Map data could not load.</div>';
     if (mapStatusPill) mapStatusPill.textContent = "Map unavailable";
     setMapFeedback("The country list still works, but the map data could not load.", "bad");
   }
+}
+
+function updateMapViewBox() {
+  const svg = worldMapWrap.querySelector(".world-map");
+  if (!svg) return;
+
+  const width = MAP_WIDTH / mapZoom;
+  const height = MAP_HEIGHT / mapZoom;
+  const x = (MAP_WIDTH - width) / 2;
+  const y = (MAP_HEIGHT - height) / 2;
+  svg.setAttribute("viewBox", [x, y, width, height].map((value) => value.toFixed(2)).join(" "));
+
+  if (mapZoomReadout) mapZoomReadout.textContent = Math.round(mapZoom * 100) + "%";
+  if (mapZoomOutButton) mapZoomOutButton.disabled = mapZoom <= MAP_MIN_ZOOM;
+  if (mapZoomInButton) mapZoomInButton.disabled = mapZoom >= MAP_MAX_ZOOM;
+}
+
+function setMapZoom(nextZoom) {
+  mapZoom = clamp(nextZoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM);
+  updateMapViewBox();
 }
 
 function buildMapGrid() {
@@ -477,6 +521,20 @@ function syncMapHighlights() {
     const country = COUNTRIES.find((item) => item.code === code);
     marker.classList.toggle("is-guessed", Boolean(country && mapGuessed.has(country.name)));
   });
+  syncMissingCountryDots();
+}
+
+function syncMissingCountryDots() {
+  mapMissingDotsByCode.forEach((dot, code) => {
+    const country = COUNTRIES.find((item) => item.code === code);
+    const shouldShow = Boolean(missingOverlayVisible && country && !mapGuessed.has(country.name));
+    dot.classList.toggle("is-visible", shouldShow);
+  });
+
+  if (missingCountriesButton) {
+    missingCountriesButton.setAttribute("aria-pressed", String(missingOverlayVisible));
+    missingCountriesButton.textContent = missingOverlayVisible ? "Hide missing dots" : "Show missing dots";
+  }
 }
 
 function countryFromMapAnswer(value) {
@@ -588,7 +646,26 @@ mapResetButton.addEventListener("click", () => {
   syncMapHighlights();
   if (mapStatusPill) mapStatusPill.textContent = "World map ready";
   setMapFeedback("Map reset. Start anywhere on the globe.");
-  mapGuessInput.focus();
+  mapGuessInput.focus({ preventScroll: true });
+});
+
+mapZoomOutButton.addEventListener("click", () => {
+  setMapZoom(mapZoom / MAP_ZOOM_STEP);
+});
+
+mapZoomInButton.addEventListener("click", () => {
+  setMapZoom(mapZoom * MAP_ZOOM_STEP);
+});
+
+mapZoomResetButton.addEventListener("click", () => {
+  setMapZoom(1);
+});
+
+missingCountriesButton.addEventListener("click", () => {
+  missingOverlayVisible = !missingOverlayVisible;
+  syncMissingCountryDots();
+  const missingCount = TOTAL - mapGuessed.size;
+  setMapFeedback(missingOverlayVisible ? missingCount + " missing countries marked on the map." : "Missing country dots hidden.");
 });
 
 if (TOTAL !== 196) {

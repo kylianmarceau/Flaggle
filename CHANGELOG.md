@@ -6,6 +6,7 @@
 - Added local boundary data for all 196 playable countries.
 - Added mode switching between Flag Rush and Country Guesser.
 - Added asset versioning so deployed pages load the latest game scripts after Amplify updates.
+- Added map zoom controls and a missing-country dot overlay for Country Guesser mode.
 
 ## v1.1.2
 
