@@ -110,6 +110,7 @@ export function hydrateGameState(index: CountryIndex, mode: GameMode, save: Solo
     streak: save.streak,
     bestStreak: save.bestStreak,
     score: save.score,
+    hintLevel: 0,
     startedAt: save.startedAt,
     endedAt: currentCountryId === null ? save.updatedAt : null,
     lastResult: null,

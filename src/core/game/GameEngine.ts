@@ -3,11 +3,45 @@ import type { GameMode, ModeOptions } from "../modes";
 import { createRoundQueue, takeNextCountry } from "./roundQueue";
 import type { CreateGameEngineInput, GameCommand, GameEngine, GameEvent, GameState, Hint } from "./types";
 
-function createHint(country: Country): Hint {
+function createNameSilhouette(name: string): string {
+  return name.replace(/[A-Za-z]/g, "•").replace(/\s+/g, " / ");
+}
+
+function countVowelBeats(name: string): number {
+  return name.toLowerCase().match(/[aeiouy]+/g)?.length ?? 0;
+}
+
+function findInteriorRareLetter(name: string): string | null {
+  const words = name.toLowerCase().match(/[a-z]+/g) ?? [];
+  const interiorLetters = words.map((word) => word.slice(1, -1)).join("");
+  return [..."qzxjkvwy"].find((letter) => interiorLetters.includes(letter)) ?? null;
+}
+
+function createHint(country: Country, level: number): Hint {
+  const hintLevel = Math.min(level, 2);
+  if (hintLevel === 0) {
+    return {
+      title: "Map shelf",
+      message: `${country.continent}. Name silhouette: ${createNameSilhouette(country.name)}.`,
+      level: hintLevel,
+    };
+  }
+
+  if (hintLevel === 1) {
+    const rareLetter = findInteriorRareLetter(country.name);
+    const letterSignal = rareLetter ? `has “${rareLetter.toUpperCase()}” away from the edges` : "keeps its rare-letter signal hidden at the edges or absent";
+    return {
+      title: "Letter trail",
+      message: `The common English name ${letterSignal}; vowel rhythm: ${countVowelBeats(country.name)} beats.`,
+      level: hintLevel,
+    };
+  }
+
+  const codeLetter = country.code.charAt(1) || country.code.charAt(0);
   return {
-    firstLetter: country.name.charAt(0),
-    letterCount: country.name.replace(/[^A-Za-z]/g, "").length,
-    wordCount: country.name.split(/\s+/).filter(Boolean).length,
+    title: "Index trace",
+    message: `One ISO-code letter is “${codeLetter}”. ${country.aliases.length > 0 ? "There is at least one accepted alternate name." : "No alternate-name shortcut is registered."}`,
+    level: hintLevel,
   };
 }
 
@@ -46,6 +80,7 @@ function createInitialState(
     streak: 0,
     bestStreak: 0,
     score: 0,
+    hintLevel: 0,
     startedAt: now,
     endedAt: next.countryId === null ? now : null,
     lastResult: null,
@@ -57,7 +92,7 @@ function createInitialState(
 function advanceToNextCountry(
   state: GameState,
   now: number,
-): Pick<GameState, "currentCountryId" | "queue" | "roundNumber" | "status" | "endedAt"> {
+): Pick<GameState, "currentCountryId" | "queue" | "roundNumber" | "status" | "endedAt" | "hintLevel"> {
   const next = takeNextCountry(state.queue, state.guessedCountryIds);
   const complete = next.countryId === null;
 
@@ -67,6 +102,7 @@ function advanceToNextCountry(
     roundNumber: complete ? state.roundNumber : state.roundNumber + 1,
     status: complete ? "complete" : "playing",
     endedAt: complete ? now : null,
+    hintLevel: 0,
   };
 }
 
@@ -100,11 +136,12 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
 
       if (command.type === "REQUEST_HINT") {
         if (!mode.hints.enabled) return events;
-        const hint = createHint(currentCountry);
+        const hint = createHint(currentCountry, state.hintLevel);
         state = {
           ...state,
+          hintLevel: state.hintLevel + 1,
           score: Math.max(0, state.score - mode.hints.penaltyPoints),
-          lastResult: { type: "hint", countryId: currentCountry.id, message: `Starts with ${hint.firstLetter}, ${hint.letterCount} letters, ${hint.wordCount} words.` },
+          lastResult: { type: "hint", countryId: currentCountry.id, message: `${hint.title}: ${hint.message}` },
         };
         events.push({ type: "HINT_REVEALED", countryId: currentCountry.id, hint });
         return events;

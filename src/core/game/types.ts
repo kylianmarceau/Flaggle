@@ -2,9 +2,9 @@ import type { CountryId, CountryIndex } from "../countries";
 import type { GameMode, ModeOptions } from "../modes/types";
 
 export interface Hint {
-  readonly firstLetter: string;
-  readonly letterCount: number;
-  readonly wordCount: number;
+  readonly title: string;
+  readonly message: string;
+  readonly level: number;
 }
 
 export interface GuessResult {
@@ -31,6 +31,7 @@ export interface GameState {
   readonly streak: number;
   readonly bestStreak: number;
   readonly score: number;
+  readonly hintLevel: number;
   readonly startedAt: number | null;
   readonly endedAt: number | null;
   readonly lastResult: GuessResult | null;

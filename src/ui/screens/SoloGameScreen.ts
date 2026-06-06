@@ -52,8 +52,7 @@ function applyEvents(events: readonly GameEvent[], views: SoloViews, index: Coun
     }
 
     if (event.type === "HINT_REVEALED") {
-      const wordLabel = event.hint.wordCount === 1 ? "word" : "words";
-      showFeedback(views.feedback, `Hint: starts with ${event.hint.firstLetter}, ${event.hint.letterCount} letters, ${event.hint.wordCount} ${wordLabel}.`, "neutral");
+      showFeedback(views.feedback, `${event.hint.title}: ${event.hint.message}`, "neutral");
       continue;
     }
 

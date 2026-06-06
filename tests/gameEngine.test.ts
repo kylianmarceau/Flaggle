@@ -42,6 +42,22 @@ describe("game engine", () => {
     expect(state.wrongAnswers).toBe(0);
   });
 
+  it("returns progressive hints without immediately revealing the first letter", () => {
+    const { countryIndex, engine } = createFixtureGame();
+    const current = getCurrentCountry(countryIndex, engine.getState());
+
+    const firstHint = engine.dispatch({ type: "REQUEST_HINT", now: 1060 })[0];
+    const secondHint = engine.dispatch({ type: "REQUEST_HINT", now: 1070 })[0];
+
+    expect(firstHint?.type).toBe("HINT_REVEALED");
+    expect(secondHint?.type).toBe("HINT_REVEALED");
+    if (firstHint?.type !== "HINT_REVEALED" || secondHint?.type !== "HINT_REVEALED") return;
+    expect(firstHint.hint.title).toBe("Map shelf");
+    expect(secondHint.hint.title).toBe("Letter trail");
+    expect(firstHint.hint.message).not.toContain(current!.name.charAt(0));
+    expect(engine.getState().hintLevel).toBe(2);
+  });
+
   it("keeps the flag live after a wrong answer", () => {
     const { countryIndex, engine } = createFixtureGame();
     const current = getCurrentCountry(countryIndex, engine.getState());
