@@ -1,0 +1,41 @@
+@media (max-width: 1080px) {
+  .app-shell { width: min(100% - 24px, 940px); }
+  .stats-panel { grid-template-columns: repeat(5, auto); }
+  .progress-card { grid-column: 1 / -1; }
+}
+
+@media (max-width: 700px) {
+  .app-shell { width: min(100% - 20px, 100%); padding-block: 12px; }
+  .game-header { align-items: stretch; flex-direction: column; }
+  .mode-controls { width: 100%; justify-items: stretch; }
+  .mode-description { text-align: left; }
+  .mode-select-row { justify-content: stretch; flex-direction: column; }
+  .mode-select { width: 100%; }
+  .stats-panel { grid-template-columns: 1fr 1fr 1fr; gap: 7px; }
+  .progress-card { grid-column: 1 / -1; }
+  .atlas-open { width: 100%; min-height: 38px; }
+  .stat-card { justify-content: space-between; }
+  .input-row { grid-template-columns: 1fr auto; }
+  .actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+  .actions .atlas-shell { margin-left: 0; }
+  button { width: 100%; }
+  .atlas-drawer {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: min(78vh, 720px);
+    border-left: 0;
+    border-top: 1px solid var(--border-strong);
+    transform: translateY(100%);
+  }
+  .atlas-shell.open .atlas-drawer { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}

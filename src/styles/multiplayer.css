@@ -1,0 +1,321 @@
+.multiplayer-screen {
+  gap: clamp(10px, 1.5dvh, 14px);
+}
+
+.multiplayer-screen [hidden] {
+  display: none !important;
+}
+
+.multiplayer-status {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  border: 1px solid rgba(184, 227, 109, 0.18);
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.028);
+  font-size: 0.82rem;
+  font-weight: 640;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.multiplayer-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.multiplayer-card {
+  border: 1px solid rgba(184, 227, 109, 0.16);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(184, 227, 109, 0.075), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+  box-shadow: var(--shadow);
+  padding: clamp(18px, 2.4vw, 28px);
+}
+
+.multiplayer-setup,
+.lobby-panel {
+  width: min(100%, 620px);
+  align-self: center;
+  justify-self: center;
+}
+
+.multiplayer-setup h1 {
+  max-width: 12ch;
+  margin-bottom: 14px;
+}
+
+.multiplayer-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  margin: 18px 0 16px;
+}
+
+.multiplayer-form-grid input:first-child {
+  grid-column: 1 / -1;
+}
+
+.room-code-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.room-code-row > span {
+  color: var(--muted);
+  font-weight: 720;
+}
+
+.room-code {
+  min-width: 0;
+  color: var(--accent);
+  font-size: clamp(2.6rem, 9vw, 5.2rem);
+  line-height: 0.9;
+  letter-spacing: 0.12em;
+  text-align: right;
+  text-shadow: 0 0 28px rgba(184, 227, 109, 0.16);
+}
+
+.player-list,
+.score-list,
+.result-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.player-list {
+  margin: 12px 0 16px;
+}
+
+.player-row,
+.score-row,
+.result-row {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.095);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 10px 12px;
+}
+
+.player-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.player-row.is-local,
+.score-row.is-local {
+  border-color: rgba(184, 227, 109, 0.42);
+  background: rgba(184, 227, 109, 0.065);
+}
+
+.player-name,
+.score-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 760;
+}
+
+.player-status,
+.score-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.player-status.offline {
+  color: var(--bad);
+}
+
+.multiplayer-game-layout {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(300px, 1fr) auto;
+  gap: clamp(12px, 1.8vw, 18px);
+  overflow: hidden;
+}
+
+.multiplayer-bottom-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.72fr);
+  gap: clamp(12px, 1.8vw, 18px);
+}
+
+.multiplayer-flag-card,
+.multiplayer-round-panel,
+.multiplayer-score-panel {
+  min-height: 0;
+}
+
+.multiplayer-flag-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: clamp(14px, 2vw, 20px);
+}
+
+.multiplayer-flag-slot {
+  min-height: 0;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.multiplayer-flag-slot .flag-image {
+  max-height: clamp(190px, 30dvh, 320px);
+}
+
+.multiplayer-flag-slot .complete-card {
+  width: min(34rem, 92%);
+  color: var(--accent);
+  font-size: clamp(1.15rem, 2.4vw, 1.8rem);
+  line-height: 1.18;
+  text-align: center;
+}
+
+.multiplayer-round-panel,
+.multiplayer-score-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden auto;
+  padding: clamp(14px, 2vw, 20px);
+  scrollbar-width: thin;
+}
+
+.multiplayer-round-panel h2,
+.multiplayer-score-panel h2 {
+  margin-bottom: 8px;
+}
+
+.multiplayer-answer-form {
+  margin-bottom: 10px;
+}
+
+.multiplayer-answer-form .input-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.multiplayer-answer-form .input-row input {
+  min-width: 0;
+}
+
+.multiplayer-answer-form .input-row button {
+  min-width: 88px;
+  padding-inline: 14px;
+}
+
+.multiplayer-feedback {
+  min-height: 42px;
+  margin: 0 0 10px;
+  border: 1px solid rgba(184, 227, 109, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text);
+  background: rgba(184, 227, 109, 0.045);
+}
+
+.score-list,
+.result-list {
+  margin-bottom: 0;
+}
+
+.score-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.score-meta {
+  grid-column: 2 / -1;
+}
+
+.score-value {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.result-row.good,
+.result-row.reveal {
+  border-color: rgba(152, 223, 116, 0.4);
+  color: var(--good);
+}
+
+.result-row.final {
+  color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .multiplayer-screen {
+    overflow: auto;
+  }
+
+  .multiplayer-layout {
+    overflow: visible;
+  }
+
+  .multiplayer-game-layout {
+    height: auto;
+    grid-template-rows: auto auto;
+    overflow: visible;
+  }
+
+  .multiplayer-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .multiplayer-flag-slot {
+    min-height: 260px;
+  }
+
+  .multiplayer-flag-slot .flag-image {
+    max-height: 240px;
+  }
+
+  .multiplayer-round-panel,
+  .multiplayer-score-panel {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 700px) {
+  .multiplayer-status {
+    width: 100%;
+    white-space: normal;
+  }
+
+  .multiplayer-form-grid,
+  .room-code-row {
+    grid-template-columns: 1fr;
+  }
+
+  .room-code {
+    text-align: left;
+  }
+
+  .player-row,
+  .score-row {
+    grid-template-columns: 1fr;
+  }
+
+  .score-meta {
+    grid-column: auto;
+  }
+}

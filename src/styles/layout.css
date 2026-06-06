@@ -1,0 +1,58 @@
+.app-shell {
+  width: min(1180px, calc(100% - clamp(24px, 5vw, 56px)));
+  height: 100dvh;
+  margin: 0 auto;
+  padding: clamp(12px, 2dvh, 22px) 0;
+  display: flex;
+}
+
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 28px;
+  height: 28px;
+  display: block;
+  filter: invert(89%) sepia(18%) saturate(283%) hue-rotate(358deg) brightness(108%) contrast(91%);
+  opacity: 0.95;
+}
+
+.brand-name {
+  color: var(--text);
+  font-size: 1.12rem;
+  font-weight: 760;
+  letter-spacing: -0.045em;
+  text-transform: lowercase;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.game-screen {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  animation: enter 180ms ease both;
+}
+
+@keyframes enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

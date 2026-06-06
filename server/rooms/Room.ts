@@ -1,0 +1,278 @@
+import type { CountryId, CountryIndex } from "../../src/core/countries";
+import { createRoundQueue, isAcceptedCountryGuess, takeNextCountry, type RoundQueue } from "../../src/core/game";
+import { getGameMode, type GameMode } from "../../src/core/modes";
+import type { FinalResult, PlayerId, PublicPlayerState, PublicRoomState, PublicRoundState, RoomCode, RoundResult, ServerMessage } from "../../src/core/multiplayer";
+
+export const DEFAULT_MAX_PLAYERS_PER_ROOM = 8;
+export const DEFAULT_MULTIPLAYER_ROUND_LIMIT = 10;
+export const DEFAULT_ROUND_DURATION_MS = 30_000;
+export const DEFAULT_RESULT_DISPLAY_MS = 2_000;
+
+export type RoomStatus = PublicRoomState["status"];
+
+export interface RoomOptions {
+  readonly code: RoomCode;
+  readonly hostPlayerId: PlayerId;
+  readonly hostName: string;
+  readonly countryIndex: CountryIndex;
+  readonly modeId: string;
+  readonly seed: string;
+  readonly now: number;
+  readonly maxPlayers?: number;
+  readonly roundLimit?: number;
+  readonly roundDurationMs?: number;
+}
+
+interface PrivatePlayerState extends PublicPlayerState {}
+
+interface PrivateRoundState {
+  readonly roundNumber: number;
+  readonly countryId: CountryId;
+  readonly startedAt: number;
+  readonly endsAt: number | null;
+}
+
+export type RoomResult =
+  | { readonly ok: true; readonly messages: readonly ServerMessage[] }
+  | { readonly ok: false; readonly code: string; readonly message: string; readonly messages?: readonly ServerMessage[] };
+
+function ok(messages: readonly ServerMessage[] = []): RoomResult {
+  return { ok: true, messages };
+}
+
+function fail(code: string, message: string, messages: readonly ServerMessage[] = []): RoomResult {
+  return { ok: false, code, message, ...(messages.length > 0 ? { messages } : {}) };
+}
+
+function toPublicPlayer(player: PrivatePlayerState): PublicPlayerState {
+  return { ...player };
+}
+
+function toPublicRound(round: PrivateRoundState | null, index: CountryIndex): PublicRoundState | null {
+  if (!round) return null;
+  const country = index.byId[round.countryId];
+  if (!country) return null;
+  return { roundNumber: round.roundNumber, flagSrc: country.flagSrc, startedAt: round.startedAt, endsAt: round.endsAt };
+}
+
+function createPlayer(id: PlayerId, name: string): PrivatePlayerState {
+  return { id, name, connected: true, ready: false, score: 0, streak: 0, correctAnswers: 0, wrongAnswers: 0 };
+}
+
+export class Room {
+  readonly code: RoomCode;
+  readonly mode: GameMode;
+  readonly seed: string;
+  readonly maxPlayers: number;
+  readonly roundLimit: number;
+  readonly roundDurationMs: number;
+  readonly countryIndex: CountryIndex;
+
+  private hostPlayerId: PlayerId;
+  private status: RoomStatus = "lobby";
+  private players = new Map<PlayerId, PrivatePlayerState>();
+  private queue: RoundQueue;
+  private currentRound: PrivateRoundState | null = null;
+  private roundAnswers = new Map<PlayerId, RoundResult>();
+  private completedRounds = 0;
+  private touchedAt: number;
+
+  constructor(options: RoomOptions) {
+    this.code = options.code;
+    this.mode = getGameMode(options.modeId);
+    this.seed = options.seed;
+    this.maxPlayers = options.maxPlayers ?? DEFAULT_MAX_PLAYERS_PER_ROOM;
+    this.roundLimit = Math.min(options.roundLimit ?? DEFAULT_MULTIPLAYER_ROUND_LIMIT, this.mode.createCountryPool(options.countryIndex.countries).length);
+    this.roundDurationMs = options.roundDurationMs ?? DEFAULT_ROUND_DURATION_MS;
+    this.countryIndex = options.countryIndex;
+    this.hostPlayerId = options.hostPlayerId;
+    const pool = this.mode.createCountryPool(options.countryIndex.countries);
+    this.queue = createRoundQueue(pool, options.seed);
+    this.players.set(options.hostPlayerId, createPlayer(options.hostPlayerId, options.hostName));
+    this.touchedAt = options.now;
+  }
+
+  get updatedAt(): number {
+    return this.touchedAt;
+  }
+
+  get isEmpty(): boolean {
+    return this.players.size === 0 || [...this.players.values()].every((player) => !player.connected);
+  }
+
+  get publicRound(): PublicRoundState | null {
+    return toPublicRound(this.currentRound, this.countryIndex);
+  }
+
+  get state(): RoomStatus {
+    return this.status;
+  }
+
+  snapshot(): PublicRoomState {
+    return {
+      roomCode: this.code,
+      hostPlayerId: this.hostPlayerId,
+      modeId: this.mode.id,
+      status: this.status,
+      players: [...this.players.values()].map(toPublicPlayer),
+      round: this.publicRound,
+    };
+  }
+
+  touch(now: number): void {
+    this.touchedAt = now;
+  }
+
+  addPlayer(playerId: PlayerId, name: string, now: number): RoomResult {
+    this.touch(now);
+    if (this.status !== "lobby") return fail("room-in-progress", "This room has already started.");
+    if (this.players.size >= this.maxPlayers) return fail("room-full", "This room is full.");
+    if (this.players.has(playerId)) return fail("duplicate-player", "Player is already in this room.");
+
+    const player = createPlayer(playerId, name);
+    this.players.set(playerId, player);
+    return ok([{ type: "PLAYER_JOINED", player: toPublicPlayer(player) }, this.snapshotMessage()]);
+  }
+
+  removePlayer(playerId: PlayerId, now: number): RoomResult {
+    this.touch(now);
+    if (!this.players.has(playerId)) return fail("not-in-room", "Player is not in this room.");
+    this.players.delete(playerId);
+    this.transferHostIfNeeded();
+    return ok([{ type: "PLAYER_LEFT", playerId }, this.snapshotMessage()]);
+  }
+
+  disconnectPlayer(playerId: PlayerId, now: number): RoomResult {
+    this.touch(now);
+    const player = this.players.get(playerId);
+    if (!player) return fail("not-in-room", "Player is not in this room.");
+    this.players.set(playerId, { ...player, connected: false, ready: false, streak: 0 });
+    this.transferHostIfNeeded();
+    return ok([this.snapshotMessage()]);
+  }
+
+  setReady(playerId: PlayerId, ready: boolean, now: number): RoomResult {
+    this.touch(now);
+    if (this.status !== "lobby") return fail("game-started", "Ready state can only change in the lobby.");
+    const player = this.players.get(playerId);
+    if (!player) return fail("not-in-room", "Player is not in this room.");
+    this.players.set(playerId, { ...player, ready });
+    return ok([this.snapshotMessage()]);
+  }
+
+  startGame(playerId: PlayerId, now: number): RoomResult {
+    this.touch(now);
+    if (this.status !== "lobby") return fail("game-started", "The game has already started.");
+    if (playerId !== this.hostPlayerId) return fail("not-host", "Only the room host can start the game.");
+    if (![...this.players.values()].every((player) => player.id === this.hostPlayerId || !player.connected || player.ready)) {
+      return fail("players-not-ready", "All connected non-host players must be ready.");
+    }
+
+    const round = this.beginNextRound(now);
+    if (!round) return this.completeGame(now);
+    return ok([{ type: "GAME_STARTED", round }, this.snapshotMessage()]);
+  }
+
+  submitAnswer(playerId: PlayerId, answer: string, now: number): RoomResult {
+    this.touch(now);
+    if (this.status !== "playing" || !this.currentRound) return fail("round-not-open", "No active round is accepting answers.");
+    const player = this.players.get(playerId);
+    if (!player || !player.connected) return fail("not-in-room", "Player is not connected to this room.");
+
+    const country = this.countryIndex.byId[this.currentRound.countryId];
+    if (!country) return fail("country-not-found", "Current country is unavailable.");
+
+    if (!isAcceptedCountryGuess(country, answer, this.mode)) {
+      const updatedPlayer = { ...player, wrongAnswers: player.wrongAnswers + 1, streak: 0 };
+      this.players.set(playerId, updatedPlayer);
+      if (!this.roundAnswers.has(playerId)) this.roundAnswers.set(playerId, { playerId, correct: false, points: 0, answeredAt: now });
+      return ok([{ type: "ANSWER_REJECTED", reason: "Not quite. Try again before the round ends." }, this.snapshotMessage()]);
+    }
+
+    const points = this.calculatePoints(player, now);
+    const updatedPlayer = { ...player, score: player.score + points, streak: player.streak + 1, correctAnswers: player.correctAnswers + 1 };
+    this.players.set(playerId, updatedPlayer);
+    this.roundAnswers.set(playerId, { playerId, correct: true, points, answeredAt: now });
+    this.status = "round-result";
+    this.completedRounds += 1;
+
+    return ok([{ type: "ANSWER_ACCEPTED", playerId, points }, this.roundEndedMessage(), this.snapshotMessage()]);
+  }
+
+  endRound(now: number): RoomResult {
+    this.touch(now);
+    if (this.status !== "playing" || !this.currentRound) return fail("round-not-open", "No active round can be ended.");
+    this.status = "round-result";
+    this.completedRounds += 1;
+    return ok([this.roundEndedMessage(), this.snapshotMessage()]);
+  }
+
+  advanceAfterResult(now: number): RoomResult {
+    this.touch(now);
+    if (this.status !== "round-result") return fail("round-result-not-open", "Room is not showing a round result.");
+    if (this.completedRounds >= this.roundLimit) return this.completeGame(now);
+
+    const round = this.beginNextRound(now);
+    if (!round) return this.completeGame(now);
+    return ok([{ type: "ROUND_STARTED", round }, this.snapshotMessage()]);
+  }
+
+  finalResults(): readonly FinalResult[] {
+    const sorted = [...this.players.values()].sort((left, right) => right.score - left.score || right.correctAnswers - left.correctAnswers || left.name.localeCompare(right.name));
+    return sorted.map((player, index) => ({ playerId: player.id, rank: index + 1, score: player.score, correctAnswers: player.correctAnswers }));
+  }
+
+  private transferHostIfNeeded(): void {
+    const host = this.players.get(this.hostPlayerId);
+    if (host?.connected) return;
+    const nextHost = [...this.players.values()].find((player) => player.connected);
+    if (nextHost) this.hostPlayerId = nextHost.id;
+  }
+
+  private snapshotMessage(): ServerMessage {
+    return { type: "ROOM_SNAPSHOT", room: this.snapshot() };
+  }
+
+  private beginNextRound(now: number): PublicRoundState | null {
+    const excluded = new Set<CountryId>();
+    const next = takeNextCountry(this.queue, excluded);
+    this.queue = next.queue;
+    if (next.countryId === null) {
+      this.currentRound = null;
+      return null;
+    }
+
+    this.roundAnswers = new Map();
+    this.status = "playing";
+    this.currentRound = {
+      roundNumber: this.completedRounds + 1,
+      countryId: next.countryId,
+      startedAt: now,
+      endsAt: this.roundDurationMs > 0 ? now + this.roundDurationMs : null,
+    };
+    return this.publicRound;
+  }
+
+  private calculatePoints(player: PrivatePlayerState, now: number): number {
+    const timeBonus = this.currentRound?.endsAt ? Math.max(0, Math.ceil((this.currentRound.endsAt - now) / 1000)) : 0;
+    return 100 + Math.min(player.streak, 10) * 10 + timeBonus;
+  }
+
+  private roundResults(): readonly RoundResult[] {
+    return [...this.players.values()].map((player) => this.roundAnswers.get(player.id) ?? { playerId: player.id, correct: false, points: 0, answeredAt: null });
+  }
+
+  private roundEndedMessage(): ServerMessage {
+    const round = this.currentRound;
+    const country = round ? this.countryIndex.byId[round.countryId] : null;
+    if (!country) return { type: "ERROR", code: "country-not-found", message: "Round country is unavailable." };
+    return { type: "ROUND_ENDED", countryCode: country.code, countryName: country.name, results: this.roundResults() };
+  }
+
+  private completeGame(now: number): RoomResult {
+    this.touch(now);
+    this.status = "complete";
+    this.currentRound = null;
+    return ok([{ type: "GAME_COMPLETED", results: this.finalResults() }, this.snapshotMessage()]);
+  }
+}

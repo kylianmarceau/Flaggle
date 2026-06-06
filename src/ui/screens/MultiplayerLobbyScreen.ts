@@ -1,0 +1,288 @@
+import type { MultiplayerTransport, PublicRoomState, PublicRoundState, RoundResult, FinalResult, ServerMessage, TransportStatus } from "../../core/multiplayer";
+import { createMockMultiplayerTransport } from "../../core/multiplayer";
+import type { GameMode } from "../../core/modes";
+import type { Screen } from "../../app/router";
+import { el } from "../dom/createElement";
+import { createMultiplayerGameView } from "./MultiplayerGameScreen";
+
+export interface MultiplayerLobbyScreenOptions {
+  readonly modes: readonly GameMode[];
+  readonly createOnlineTransport: () => MultiplayerTransport;
+  readonly onBackToSolo: () => void;
+}
+
+interface RoundReveal {
+  readonly countryCode: string;
+  readonly countryName: string;
+  readonly results: readonly RoundResult[];
+}
+
+function createBrand(): HTMLElement {
+  return el("div", {
+    className: "brand-lockup compact",
+    children: [el("img", { className: "brand-logo", attrs: { src: "logo.svg", alt: "" } }), el("span", { className: "brand-name", text: "locato" })],
+  });
+}
+
+function ownPlayer(room: PublicRoomState | null, playerId: string | null) {
+  return room && playerId ? room.players.find((player) => player.id === playerId) ?? null : null;
+}
+
+function allConnectedPlayersReady(room: PublicRoomState): boolean {
+  return room.players.every((player) => player.id === room.hostPlayerId || !player.connected || player.ready);
+}
+
+function createPlayerRows(room: PublicRoomState, localPlayerId: string | null): readonly HTMLElement[] {
+  return room.players.map((player) =>
+    el("li", {
+      className: player.id === localPlayerId ? "player-row is-local" : "player-row",
+      children: [
+        el("span", { className: "player-name", text: `${player.name}${player.id === room.hostPlayerId ? " · host" : ""}` }),
+        el("span", { className: player.connected ? "player-status" : "player-status offline", text: player.connected ? (player.ready ? "ready" : "not ready") : "offline" }),
+      ],
+    }),
+  );
+}
+
+function safeConnect(transport: MultiplayerTransport, afterConnect: () => void, onError: (message: string) => void): void {
+  transport
+    .connect()
+    .then(afterConnect)
+    .catch((error: unknown) => onError(error instanceof Error ? error.message : "Unable to connect to multiplayer."));
+}
+
+export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOptions): Screen {
+  const controller = new AbortController();
+  let transport: MultiplayerTransport | null = null;
+  let cleanupMessageHandler: (() => void) | null = null;
+  let cleanupStatusHandler: (() => void) | null = null;
+  let status: TransportStatus = "idle";
+  let localPlayerId: string | null = null;
+  let room: PublicRoomState | null = null;
+  let activeRound: PublicRoundState | null = null;
+  let roundReveal: RoundReveal | null = null;
+  let finalResults: readonly FinalResult[] | null = null;
+  let feedback = "Create a room, join with a code, or try the local demo transport.";
+
+  const nameInput = el("input", { attrs: { type: "text", autocomplete: "nickname", maxlength: "32", placeholder: "Player name", value: "Player" } });
+  const joinCodeInput = el("input", { attrs: { type: "text", autocomplete: "off", maxlength: "12", placeholder: "Room code" } });
+  const modeSelect = el("select", {
+    attrs: { "aria-label": "Multiplayer mode" },
+    children: options.modes.map((mode) => el("option", { text: mode.label, attrs: { value: mode.id } })),
+  });
+  const statusText = el("p", { className: "multiplayer-status", text: feedback });
+  const roomCode = el("strong", { className: "room-code", text: "----" });
+  const playerList = el("ul", { className: "player-list" });
+  const readyButton = el("button", { className: "secondary-action", text: "Ready", attrs: { type: "button" } });
+  const startButton = el("button", { className: "primary-action", text: "Start game", attrs: { type: "button" } });
+  const leaveButton = el("button", { className: "ghost-action", text: "Leave room", attrs: { type: "button" } });
+  const createButton = el("button", { className: "primary-action", text: "Create online room", attrs: { type: "button" } });
+  const joinButton = el("button", { className: "secondary-action", text: "Join online room", attrs: { type: "button" } });
+  const demoButton = el("button", { className: "ghost-action", text: "Try local demo", attrs: { type: "button" } });
+  const backButton = el("button", { className: "ghost-action", text: "Back to solo", attrs: { type: "button" } });
+
+  const setupPanel = el("section", {
+    className: "multiplayer-card multiplayer-setup",
+    children: [
+      el("p", { className: "eyebrow", text: "MULTIPLAYER" }),
+      el("h1", { text: "Host or join a flag room" }),
+      el("p", { className: "muted", text: "The server owns rooms, answers, scoring, round timing, and final results. Clients only submit input and render public state." }),
+      el("div", { className: "multiplayer-form-grid", children: [nameInput, modeSelect, joinCodeInput] }),
+      el("div", { className: "actions", children: [createButton, joinButton, demoButton] }),
+    ],
+  });
+
+  const lobbyPanel = el("section", {
+    className: "multiplayer-card lobby-panel",
+    children: [
+      el("p", { className: "eyebrow", text: "ROOM" }),
+      el("div", { className: "room-code-row", children: [el("span", { text: "Code" }), roomCode] }),
+      playerList,
+      el("div", { className: "actions", children: [readyButton, startButton, leaveButton] }),
+    ],
+  });
+
+  const gameView = createMultiplayerGameView((answer) => {
+    transport?.send({ type: "SUBMIT_ANSWER", answer, clientSentAt: Date.now() });
+  });
+
+  function disconnectCurrentTransport(): void {
+    cleanupMessageHandler?.();
+    cleanupStatusHandler?.();
+    cleanupMessageHandler = null;
+    cleanupStatusHandler = null;
+    transport?.disconnect();
+    transport = null;
+  }
+
+  function render(): void {
+    statusText.textContent = `${status}: ${feedback}`;
+    const hasRoom = room !== null;
+    setupPanel.hidden = hasRoom;
+    lobbyPanel.hidden = !hasRoom || (room?.status !== "lobby" && room?.status !== "countdown");
+    gameView.element.hidden = !hasRoom || room?.status === "lobby" || room?.status === "countdown";
+
+    if (!room) return;
+
+    roomCode.textContent = room.roomCode;
+    playerList.replaceChildren(...createPlayerRows(room, localPlayerId));
+    const currentPlayer = ownPlayer(room, localPlayerId);
+    readyButton.textContent = currentPlayer?.ready ? "Unready" : "Ready";
+    readyButton.disabled = room.status !== "lobby" || !currentPlayer;
+    startButton.disabled = room.status !== "lobby" || localPlayerId !== room.hostPlayerId || !allConnectedPlayersReady(room);
+
+    const canSubmit = room.status === "playing" && status === "connected";
+    gameView.update({ room, localPlayerId, round: activeRound, roundResult: roundReveal, finalResults, feedback, canSubmit });
+    if (canSubmit) gameView.answerInput.focus();
+  }
+
+  function handleMessage(message: ServerMessage): void {
+    switch (message.type) {
+      case "SESSION_ASSIGNED":
+        localPlayerId = message.playerId;
+        feedback = `Connected to room ${message.roomCode}.`;
+        break;
+      case "ROOM_SNAPSHOT":
+        room = message.room;
+        activeRound = message.room.round;
+        if (message.room.status === "playing") roundReveal = null;
+        break;
+      case "GAME_STARTED":
+      case "ROUND_STARTED":
+        activeRound = message.round;
+        roundReveal = null;
+        finalResults = null;
+        feedback = `Round ${message.round.roundNumber} is live.`;
+        break;
+      case "ANSWER_ACCEPTED":
+        feedback = message.playerId === localPlayerId ? `Answer accepted for ${message.points} points.` : "Another player found the country.";
+        break;
+      case "ANSWER_REJECTED":
+        feedback = message.reason;
+        break;
+      case "ROUND_ENDED":
+        roundReveal = { countryCode: message.countryCode, countryName: message.countryName, results: message.results };
+        feedback = `Round ended: ${message.countryName}.`;
+        break;
+      case "GAME_COMPLETED":
+        finalResults = message.results;
+        feedback = "Game complete.";
+        break;
+      case "PLAYER_JOINED":
+        feedback = `${message.player.name} joined.`;
+        break;
+      case "PLAYER_LEFT":
+        feedback = `Player ${message.playerId} left.`;
+        break;
+      case "ERROR":
+        feedback = message.message;
+        break;
+    }
+    render();
+  }
+
+  function bindTransport(nextTransport: MultiplayerTransport): void {
+    disconnectCurrentTransport();
+    transport = nextTransport;
+    cleanupMessageHandler = nextTransport.onMessage(handleMessage);
+    cleanupStatusHandler = nextTransport.onStatusChange((nextStatus) => {
+      status = nextStatus;
+      render();
+    });
+  }
+
+  function connectWith(nextTransport: MultiplayerTransport, afterConnect: () => void): void {
+    bindTransport(nextTransport);
+    safeConnect(nextTransport, afterConnect, (message) => {
+      feedback = message;
+      render();
+    });
+  }
+
+  createButton.addEventListener(
+    "click",
+    () => {
+      const playerName = nameInput.value.trim() || "Player";
+      connectWith(options.createOnlineTransport(), () => transport?.send({ type: "CREATE_ROOM", playerName, modeId: modeSelect.value }));
+    },
+    { signal: controller.signal },
+  );
+
+  joinButton.addEventListener(
+    "click",
+    () => {
+      const playerName = nameInput.value.trim() || "Player";
+      const roomCodeValue = joinCodeInput.value.trim();
+      if (!roomCodeValue) {
+        feedback = "Enter a room code to join online.";
+        render();
+        return;
+      }
+      connectWith(options.createOnlineTransport(), () => transport?.send({ type: "JOIN_ROOM", roomCode: roomCodeValue, playerName }));
+    },
+    { signal: controller.signal },
+  );
+
+  demoButton.addEventListener(
+    "click",
+    () => {
+      const playerName = nameInput.value.trim() || "Player";
+      connectWith(createMockMultiplayerTransport(), () => transport?.send({ type: "CREATE_ROOM", playerName, modeId: modeSelect.value }));
+    },
+    { signal: controller.signal },
+  );
+
+  readyButton.addEventListener(
+    "click",
+    () => {
+      const currentPlayer = ownPlayer(room, localPlayerId);
+      if (currentPlayer) transport?.send({ type: "SET_READY", ready: !currentPlayer.ready });
+    },
+    { signal: controller.signal },
+  );
+
+  startButton.addEventListener("click", () => transport?.send({ type: "START_GAME" }), { signal: controller.signal });
+  leaveButton.addEventListener(
+    "click",
+    () => {
+      transport?.send({ type: "LEAVE_ROOM" });
+      disconnectCurrentTransport();
+      localPlayerId = null;
+      room = null;
+      activeRound = null;
+      roundReveal = null;
+      finalResults = null;
+      status = "idle";
+      feedback = "Left the room.";
+      render();
+    },
+    { signal: controller.signal },
+  );
+  backButton.addEventListener(
+    "click",
+    () => {
+      disconnectCurrentTransport();
+      options.onBackToSolo();
+    },
+    { signal: controller.signal },
+  );
+
+  const element = el("section", {
+    className: "game-screen multiplayer-screen",
+    children: [
+      el("header", { className: "game-header", children: [createBrand(), el("div", { className: "actions", children: [backButton] })] }),
+      statusText,
+      el("div", { className: "multiplayer-layout", children: [setupPanel, lobbyPanel, gameView.element] }),
+    ],
+  });
+
+  render();
+
+  return {
+    element,
+    destroy: () => {
+      controller.abort();
+      disconnectCurrentTransport();
+    },
+  };
+}
