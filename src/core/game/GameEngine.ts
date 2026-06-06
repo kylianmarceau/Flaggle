@@ -1,38 +1,33 @@
+import { COUNTRY_FACTS } from "../countries/facts";
 import { normalizeAnswer, type Country, type CountryId, type CountryIndex } from "../countries";
 import type { GameMode, ModeOptions } from "../modes";
 import { createRoundQueue, takeNextCountry } from "./roundQueue";
 import type { CreateGameEngineInput, GameCommand, GameEngine, GameEvent, GameState, Hint } from "./types";
 
-function createNameSilhouette(name: string): string {
-  return name.replace(/[A-Za-z]/g, "•").replace(/\s+/g, " / ");
+function countNameLetters(name: string): number {
+  return name.replace(/[^A-Za-z]/g, "").length;
 }
 
-function countVowelBeats(name: string): number {
-  return name.toLowerCase().match(/[aeiouy]+/g)?.length ?? 0;
-}
-
-function findInteriorRareLetter(name: string): string | null {
-  const words = name.toLowerCase().match(/[a-z]+/g) ?? [];
-  const interiorLetters = words.map((word) => word.slice(1, -1)).join("");
-  return [..."qzxjkvwy"].find((letter) => interiorLetters.includes(letter)) ?? null;
+function countNameWords(name: string): number {
+  return name.split(/\s+/).filter(Boolean).length;
 }
 
 function createHint(country: Country, level: number): Hint {
   const hintLevel = Math.min(level, 2);
   if (hintLevel === 0) {
     return {
-      title: "Map shelf",
-      message: `${country.continent}. Name silhouette: ${createNameSilhouette(country.name)}.`,
+      title: "Country note",
+      message: COUNTRY_FACTS[country.code] ?? `It has a distinct geographic profile in ${country.continent}.`,
       level: hintLevel,
     };
   }
 
   if (hintLevel === 1) {
-    const rareLetter = findInteriorRareLetter(country.name);
-    const letterSignal = rareLetter ? `has “${rareLetter.toUpperCase()}” away from the edges` : "keeps its rare-letter signal hidden at the edges or absent";
+    const letterCount = countNameLetters(country.name);
+    const wordCount = countNameWords(country.name);
     return {
-      title: "Letter trail",
-      message: `The common English name ${letterSignal}; vowel rhythm: ${countVowelBeats(country.name)} beats.`,
+      title: "Name shape",
+      message: `${country.continent}. Starts with “${country.name.charAt(0).toUpperCase()}”; ${letterCount} letters${wordCount > 1 ? ` across ${wordCount} words` : ""}.`,
       level: hintLevel,
     };
   }
@@ -40,7 +35,7 @@ function createHint(country: Country, level: number): Hint {
   const codeLetter = country.code.charAt(1) || country.code.charAt(0);
   return {
     title: "Index trace",
-    message: `One ISO-code letter is “${codeLetter}”. ${country.aliases.length > 0 ? "There is at least one accepted alternate name." : "No alternate-name shortcut is registered."}`,
+    message: `One ISO-code letter is “${codeLetter}”. ${country.aliases.length > 0 ? "An alternate accepted name exists." : "No alternate-name shortcut is registered."}`,
     level: hintLevel,
   };
 }

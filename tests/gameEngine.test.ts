@@ -42,7 +42,7 @@ describe("game engine", () => {
     expect(state.wrongAnswers).toBe(0);
   });
 
-  it("returns progressive hints without immediately revealing the first letter", () => {
+  it("returns a country fact before the direct name-shape hint", () => {
     const { countryIndex, engine } = createFixtureGame();
     const current = getCurrentCountry(countryIndex, engine.getState());
 
@@ -52,9 +52,11 @@ describe("game engine", () => {
     expect(firstHint?.type).toBe("HINT_REVEALED");
     expect(secondHint?.type).toBe("HINT_REVEALED");
     if (firstHint?.type !== "HINT_REVEALED" || secondHint?.type !== "HINT_REVEALED") return;
-    expect(firstHint.hint.title).toBe("Map shelf");
-    expect(secondHint.hint.title).toBe("Letter trail");
-    expect(firstHint.hint.message).not.toContain(current!.name.charAt(0));
+    expect(firstHint.hint.title).toBe("Country note");
+    expect(secondHint.hint.title).toBe("Name shape");
+    expect(firstHint.hint.message).not.toContain(current!.name);
+    expect(secondHint.hint.message).toContain(`Starts with “${current!.name.charAt(0).toUpperCase()}”`);
+    expect(secondHint.hint.message).toContain(`${current!.name.replace(/[^A-Za-z]/g, "").length} letters`);
     expect(engine.getState().hintLevel).toBe(2);
   });
 
