@@ -16,6 +16,7 @@ export interface SoloGameScreenOptions {
   readonly onModeChange: (modeId: GameModeId, continent?: Continent) => void;
   readonly onStateChange: (state: GameState) => void;
   readonly onReset: () => void;
+  readonly onMultiplayer: () => void;
 }
 
 interface SoloViews {
@@ -84,6 +85,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   const hintButton = el("button", { className: "secondary-action", text: "Hint", attrs: { type: "button" } });
   const skipButton = el("button", { className: "secondary-action", text: "Skip", attrs: { type: "button" } });
   const resetButton = el("button", { className: "ghost-action", text: "Restart", attrs: { type: "button" } });
+  const multiplayerButton = el("button", { className: "ghost-action", text: "Multiplayer", attrs: { type: "button" } });
   const modeSelect = el("select", {
     className: "mode-select",
     attrs: { "aria-label": "Game mode" },
@@ -195,6 +197,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     },
     { signal: controller.signal },
   );
+  multiplayerButton.addEventListener("click", options.onMultiplayer, { signal: controller.signal });
 
   document.addEventListener(
     "keydown",
@@ -232,7 +235,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
         className: "game-header",
         children: [
           logo,
-          el("div", { className: "mode-controls", children: [el("div", { className: "mode-select-row", children: [modeSelect, continentSelect] }), modeDescription] }),
+          el("div", { className: "mode-controls", children: [el("div", { className: "mode-select-row", children: [modeSelect, continentSelect, multiplayerButton] }), modeDescription] }),
         ],
       }),
       el("div", {

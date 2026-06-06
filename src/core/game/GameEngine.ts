@@ -1,8 +1,9 @@
 import { COUNTRY_FACTS } from "../countries/facts";
-import { isToleratedMisspelling, normalizeAnswerVariants, type Country, type CountryId, type CountryIndex } from "../countries";
+import { normalizeAnswerVariants, type Country, type CountryId, type CountryIndex } from "../countries";
 import type { GameMode, ModeOptions } from "../modes";
 import { createRoundQueue, takeNextCountry } from "./roundQueue";
 import type { CreateGameEngineInput, GameCommand, GameEngine, GameEvent, GameState, Hint } from "./types";
+import { isAcceptedCountryGuess } from "./answerMatching";
 
 function countNameLetters(name: string): number {
   return name.replace(/[^A-Za-z]/g, "").length;
@@ -40,25 +41,6 @@ function createHint(country: Country, level: number): Hint {
   };
 }
 
-function acceptedByMode(country: Country, guess: string, mode: GameMode, auto: boolean): boolean {
-  const guesses = normalizeAnswerVariants(guess);
-  if (guesses.length === 0) return false;
-  if (auto) return guesses.includes(country.normalizedName);
-
-  const exactAnswers = new Set<string>();
-  for (const value of [country.name, ...(mode.acceptAliases ? country.aliases : [])]) {
-    for (const variant of normalizeAnswerVariants(value)) exactAnswers.add(variant);
-  }
-
-  if (mode.acceptCountryCodes) {
-    for (const variant of normalizeAnswerVariants(country.code)) exactAnswers.add(variant);
-  }
-
-  if (guesses.some((candidate) => exactAnswers.has(candidate))) return true;
-
-  const fuzzyAnswers = [country.name, ...(mode.acceptAliases ? country.aliases : [])];
-  return fuzzyAnswers.some((answer) => isToleratedMisspelling(guess, answer));
-}
 function calculateTimeRemainingMs(state: Pick<GameState, "startedAt" | "timeLimitSeconds">, now: number): number | null {
   if (state.startedAt === null || state.timeLimitSeconds === null) return null;
   return Math.max(0, state.timeLimitSeconds * 1000 - (now - state.startedAt));
@@ -204,7 +186,7 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
 
       if (normalizeAnswerVariants(command.value).length === 0) return events;
 
-      if (acceptedByMode(currentCountry, command.value, mode, command.auto ?? false)) {
+      if (isAcceptedCountryGuess(currentCountry, command.value, mode, command.auto ?? false)) {
         const guessedCountryIds = new Set(state.guessedCountryIds);
         guessedCountryIds.add(currentCountry.id);
         const nextStreak = state.streak + 1;

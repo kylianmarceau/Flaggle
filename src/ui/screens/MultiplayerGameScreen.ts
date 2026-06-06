@@ -1,0 +1,140 @@
+import type { FinalResult, PlayerId, PublicRoomState, PublicRoundState, RoundResult } from "../../core/multiplayer";
+import { el } from "../dom/createElement";
+
+export interface MultiplayerGameViewState {
+  readonly room: PublicRoomState;
+  readonly localPlayerId: PlayerId | null;
+  readonly round: PublicRoundState | null;
+  readonly roundResult: { readonly countryCode: string; readonly countryName: string; readonly results: readonly RoundResult[] } | null;
+  readonly finalResults: readonly FinalResult[] | null;
+  readonly feedback: string;
+  readonly canSubmit: boolean;
+}
+
+export interface MultiplayerGameView {
+  readonly element: HTMLElement;
+  readonly answerInput: HTMLInputElement;
+  readonly submitButton: HTMLButtonElement;
+  readonly update: (state: MultiplayerGameViewState) => void;
+}
+
+function formatScore(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
+}
+
+function sortPlayers(room: PublicRoomState) {
+  return [...room.players].sort((left, right) => right.score - left.score || right.correctAnswers - left.correctAnswers || left.name.localeCompare(right.name));
+}
+
+function createScoreRows(room: PublicRoomState, localPlayerId: PlayerId | null): readonly HTMLElement[] {
+  return sortPlayers(room).map((player, index) =>
+    el("li", {
+      className: player.id === localPlayerId ? "score-row is-local" : "score-row",
+      children: [
+        el("span", { className: "score-rank", text: `#${index + 1}` }),
+        el("span", { className: "score-name", text: `${player.name}${player.connected ? "" : " · offline"}` }),
+        el("span", { className: "score-value", text: formatScore(player.score) }),
+        el("span", { className: "score-meta", text: `${player.correctAnswers} correct · ${player.streak} streak` }),
+      ],
+    }),
+  );
+}
+
+function createResultRows(room: PublicRoomState, results: readonly RoundResult[]): readonly HTMLElement[] {
+  const playerById = new Map(room.players.map((player) => [player.id, player]));
+  return results.map((result) => {
+    const player = playerById.get(result.playerId);
+    return el("li", {
+      className: result.correct ? "result-row good" : "result-row",
+      text: `${player?.name ?? result.playerId}: ${result.correct ? `+${result.points}` : "no correct answer"}`,
+    });
+  });
+}
+
+function createFinalRows(room: PublicRoomState, results: readonly FinalResult[]): readonly HTMLElement[] {
+  const playerById = new Map(room.players.map((player) => [player.id, player]));
+  return results.map((result) =>
+    el("li", {
+      className: "result-row final",
+      text: `#${result.rank} ${playerById.get(result.playerId)?.name ?? result.playerId} · ${formatScore(result.score)} · ${result.correctAnswers} correct`,
+    }),
+  );
+}
+
+export function createMultiplayerGameView(onSubmit: (answer: string) => void): MultiplayerGameView {
+  const flagSlot = el("div", { className: "multiplayer-flag-slot" });
+  const roundKicker = el("p", { className: "round-kicker", text: "Waiting for the next round" });
+  const roundTitle = el("h2", { text: "Multiplayer round" });
+  const feedback = el("p", { className: "multiplayer-feedback", text: "Submit answers before the server closes the round." });
+  const resultList = el("ul", { className: "result-list" });
+  const scoreList = el("ol", { className: "score-list" });
+  const answerInput = el("input", {
+    attrs: { type: "text", autocomplete: "off", autocapitalize: "words", spellcheck: "false", placeholder: "Type the country name" },
+  });
+  const submitButton = el("button", { className: "primary-action", text: "Submit", attrs: { type: "submit" } });
+  const answerForm = el("form", {
+    className: "guess-form multiplayer-answer-form",
+    children: [el("label", { text: "Your answer" }), el("div", { className: "input-row", children: [answerInput, submitButton] })],
+  });
+
+  answerForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const answer = answerInput.value.trim();
+    if (!answer) return;
+    onSubmit(answer);
+    answerInput.value = "";
+  });
+
+  const element = el("div", {
+    className: "multiplayer-game-layout",
+    children: [
+      el("section", {
+        className: "flag-card multiplayer-flag-card",
+        children: [el("div", { className: "flag-card-top", children: [roundKicker] }), flagSlot],
+      }),
+      el("div", {
+        className: "multiplayer-bottom-grid",
+        children: [
+          el("section", {
+            className: "answer-panel multiplayer-round-panel multiplayer-answer-panel",
+            children: [roundTitle, answerForm, feedback, resultList],
+          }),
+          el("aside", {
+            className: "answer-panel multiplayer-score-panel",
+            children: [el("h2", { text: "Scoreboard" }), scoreList],
+          }),
+        ],
+      }),
+    ],
+  });
+
+  return {
+    element,
+    answerInput,
+    submitButton,
+    update: (state) => {
+      const visibleRound = state.round ?? state.room.round;
+      roundKicker.textContent = visibleRound ? `Round ${visibleRound.roundNumber}` : "Waiting for the next round";
+      roundTitle.textContent = state.room.status === "complete" ? "Game complete" : "Your answer";
+      feedback.textContent = state.feedback;
+      answerInput.disabled = !state.canSubmit;
+      submitButton.disabled = !state.canSubmit;
+
+      if (visibleRound) {
+        flagSlot.replaceChildren(el("img", { className: "flag-image", attrs: { src: visibleRound.flagSrc, alt: "Flag to guess" } }));
+      } else {
+        flagSlot.replaceChildren(el("div", { className: "complete-card", text: "The server will reveal the next flag when the room starts." }));
+      }
+
+      if (state.finalResults) resultList.replaceChildren(...createFinalRows(state.room, state.finalResults));
+      else if (state.roundResult) {
+        resultList.replaceChildren(
+          el("li", { className: "result-row reveal", text: `${state.roundResult.countryName} (${state.roundResult.countryCode})` }),
+          ...createResultRows(state.room, state.roundResult.results),
+        );
+      } else resultList.replaceChildren(el("li", { className: "result-row", text: "No result yet." }));
+
+      scoreList.replaceChildren(...createScoreRows(state.room, state.localPlayerId));
+    },
+  };
+}

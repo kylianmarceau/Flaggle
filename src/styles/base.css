@@ -64,5 +64,6 @@ h2 { font-size: clamp(1.35rem, 2.8vw, 2rem); line-height: 1.04; margin-bottom: 1
 p { line-height: 1.5; }
 
 .primary-action { background: var(--accent); color: #11160f; border-color: var(--accent); }
+.primary-action:hover:not(:disabled) { background: var(--accent); color: #11160f; border-color: var(--accent); }
 .secondary-action, .ghost-action { background: rgba(255, 255, 255, 0.03); }
 .muted { color: var(--muted); }

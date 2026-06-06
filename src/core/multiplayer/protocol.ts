@@ -10,6 +10,7 @@ export type ClientMessage =
   | { readonly type: "REQUEST_HINT" };
 
 export type ServerMessage =
+  | { readonly type: "SESSION_ASSIGNED"; readonly playerId: string; readonly roomCode: string }
   | { readonly type: "ROOM_SNAPSHOT"; readonly room: PublicRoomState }
   | { readonly type: "PLAYER_JOINED"; readonly player: PublicPlayerState }
   | { readonly type: "PLAYER_LEFT"; readonly playerId: string }

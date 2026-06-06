@@ -2,7 +2,9 @@ import { type Continent, type CountryIndex } from "../core/countries";
 import { createGameEngine, createRandomSeed, type GameEngine, type GameState } from "../core/game";
 import { clearSoloSave, hydrateGameState, readSoloSave, saveSoloGame } from "../storage/localSave";
 import { selectableModes, getGameMode, type GameMode, type GameModeId } from "../core/modes";
+import { createWebSocketMultiplayerTransport, resolveDefaultWebSocketUrl, type MultiplayerTransport } from "../core/multiplayer";
 import { createSoloGameScreen } from "../ui/screens/SoloGameScreen";
+import { createMultiplayerLobbyScreen } from "../ui/screens/MultiplayerLobbyScreen";
 import type { AppRoute, Screen } from "./router";
 
 export interface AppOptions {
@@ -24,6 +26,10 @@ function createEngine(countryIndex: CountryIndex, mode: GameMode, continent: Con
     ...(continent ? { modeOptions: { continent } } : {}),
     ...(initialState ? { initialState } : {}),
   });
+}
+
+function createDefaultOnlineTransport(): MultiplayerTransport {
+  return createWebSocketMultiplayerTransport(resolveDefaultWebSocketUrl(window.location));
 }
 
 export function createApp(options: AppOptions): App {
@@ -53,6 +59,21 @@ export function createApp(options: AppOptions): App {
         },
         onReset: () => clearSoloSave(options.storage),
         onStateChange: (state) => saveSoloGame(options.storage, options.countryIndex, state),
+        onMultiplayer: () => navigate({ type: "multiplayer" }),
+      }),
+    );
+  }
+
+  function startMultiplayer(): void {
+    mount(
+      createMultiplayerLobbyScreen({
+        modes: selectableModes,
+        createOnlineTransport: createDefaultOnlineTransport,
+        onBackToSolo: () => {
+          const save = readSoloSave(options.storage);
+          const savedModeId = save?.modeId ? (save.modeId as GameModeId) : "classic";
+          startSolo(savedModeId, undefined, save !== null);
+        },
       }),
     );
   }
@@ -60,6 +81,11 @@ export function createApp(options: AppOptions): App {
   function navigate(route: AppRoute): void {
     if (route.type === "solo-game") {
       startSolo(route.modeId, route.continent, route.continueSaved ?? false);
+      return;
+    }
+
+    if (route.type === "multiplayer") {
+      startMultiplayer();
       return;
     }
 

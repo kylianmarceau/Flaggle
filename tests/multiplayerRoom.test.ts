@@ -1,0 +1,142 @@
+import { describe, expect, it } from "vitest";
+import { indexCountries, type RawCountry } from "../src/core/countries";
+import type { PublicRoundState, ServerMessage } from "../src/core/multiplayer";
+import { Room } from "../server/rooms/Room";
+import { RoomManager, type MultiplayerConnection } from "../server/rooms/RoomManager";
+
+const fixtureCountries = [
+  { name: "Japan", code: "JP", aliases: ["Nippon"], continent: "Asia", flagSrc: "assets/flags/jp.svg" },
+  { name: "Brazil", code: "BR", aliases: ["Brasil"], continent: "South America", flagSrc: "assets/flags/br.svg" },
+  { name: "Canada", code: "CA", aliases: [], continent: "North America", flagSrc: "assets/flags/ca.svg" },
+] as const satisfies readonly RawCountry[];
+
+const countryIndex = indexCountries(fixtureCountries);
+
+class TestConnection implements MultiplayerConnection {
+  readonly messages: ServerMessage[] = [];
+
+  send(message: string): void {
+    this.messages.push(JSON.parse(message) as ServerMessage);
+  }
+}
+
+function latestRoomMessage(connection: TestConnection) {
+  return [...connection.messages].reverse().find((message) => message.type === "ROOM_SNAPSHOT");
+}
+
+function countryNameForRound(round: PublicRoundState): string {
+  const country = countryIndex.countries.find((candidate) => candidate.flagSrc === round.flagSrc);
+  if (!country) throw new Error(`No fixture country for ${round.flagSrc}`);
+  return country.name;
+}
+
+describe("multiplayer room", () => {
+  it("keeps answers private until a round is ended by the authoritative room", () => {
+    const room = new Room({
+      code: "ABCDE",
+      hostPlayerId: "host",
+      hostName: "Host",
+      countryIndex,
+      modeId: "classic",
+      seed: "shared-seed",
+      now: 1000,
+      roundLimit: 2,
+      roundDurationMs: 30_000,
+    });
+
+    expect(room.addPlayer("guest", "Guest", 1010).ok).toBe(true);
+    expect(room.startGame("host", 1020).ok).toBe(false);
+    expect(room.setReady("guest", true, 1030).ok).toBe(true);
+
+    const start = room.startGame("host", 1040);
+    expect(start.ok).toBe(true);
+    const startedRound = start.ok ? start.messages.find((message) => message.type === "GAME_STARTED")?.round : null;
+    expect(startedRound).not.toBeNull();
+    expect(Object.keys(startedRound!).sort()).toEqual(["endsAt", "flagSrc", "roundNumber", "startedAt"]);
+
+    const wrong = room.submitAnswer("guest", "wrong answer", 1050);
+    expect(wrong.ok).toBe(true);
+    expect(wrong.ok ? wrong.messages.some((message) => message.type === "ROUND_ENDED") : false).toBe(false);
+
+    const correctAnswer = countryNameForRound(startedRound!);
+    const correct = room.submitAnswer("host", correctAnswer, 1060);
+    expect(correct.ok).toBe(true);
+    const reveal = correct.ok ? correct.messages.find((message) => message.type === "ROUND_ENDED") : null;
+    expect(reveal?.type).toBe("ROUND_ENDED");
+    if (reveal?.type !== "ROUND_ENDED") throw new Error("Expected round reveal.");
+    expect(reveal.countryName).toBe(correctAnswer);
+    expect(reveal.results.some((result) => result.playerId === "host" && result.correct && result.points > 0)).toBe(true);
+    expect(room.snapshot().status).toBe("round-result");
+  });
+
+  it("generates server-owned final standings", () => {
+    const room = new Room({
+      code: "ABCDE",
+      hostPlayerId: "host",
+      hostName: "Host",
+      countryIndex,
+      modeId: "classic",
+      seed: "shared-seed",
+      now: 1000,
+      roundLimit: 1,
+      roundDurationMs: 30_000,
+    });
+
+    expect(room.startGame("host", 1010).ok).toBe(true);
+    const round = room.publicRound;
+    if (!round) throw new Error("Expected active round.");
+    expect(room.submitAnswer("host", countryNameForRound(round), 1020).ok).toBe(true);
+    const complete = room.advanceAfterResult(6000);
+    expect(complete.ok).toBe(true);
+    expect(complete.ok ? complete.messages.some((message) => message.type === "GAME_COMPLETED") : false).toBe(true);
+    expect(room.snapshot().status).toBe("complete");
+    expect(room.finalResults()[0]?.playerId).toBe("host");
+  });
+});
+
+describe("room manager", () => {
+  it("lets two connections join the same room and receive the same public round", () => {
+    const manager = new RoomManager({ countryIndex, resultDisplayMs: 1000 });
+    const host = new TestConnection();
+    const guest = new TestConnection();
+
+    manager.handleMessage(host, { type: "CREATE_ROOM", playerName: "Host", modeId: "classic" }, 1000);
+    const assigned = host.messages.find((message) => message.type === "SESSION_ASSIGNED");
+    expect(assigned?.type).toBe("SESSION_ASSIGNED");
+    if (assigned?.type !== "SESSION_ASSIGNED") throw new Error("Expected assigned host session.");
+
+    manager.handleMessage(guest, { type: "JOIN_ROOM", roomCode: assigned.roomCode, playerName: "Guest" }, 1010);
+    const hostSnapshot = latestRoomMessage(host);
+    const guestSnapshot = latestRoomMessage(guest);
+    expect(hostSnapshot?.type).toBe("ROOM_SNAPSHOT");
+    expect(guestSnapshot?.type).toBe("ROOM_SNAPSHOT");
+    if (hostSnapshot?.type !== "ROOM_SNAPSHOT" || guestSnapshot?.type !== "ROOM_SNAPSHOT") throw new Error("Expected room snapshots.");
+    expect(hostSnapshot.room.players).toHaveLength(2);
+    expect(guestSnapshot.room.players).toHaveLength(2);
+
+    manager.handleMessage(host, { type: "START_GAME" }, 1020);
+    expect(host.messages.at(-1)).toMatchObject({ type: "ERROR", code: "players-not-ready" });
+
+    manager.handleMessage(guest, { type: "SET_READY", ready: true }, 1030);
+    manager.handleMessage(host, { type: "START_GAME" }, 1040);
+    const hostStarted = host.messages.find((message) => message.type === "GAME_STARTED");
+    const guestStarted = guest.messages.find((message) => message.type === "GAME_STARTED");
+    expect(hostStarted?.type).toBe("GAME_STARTED");
+    expect(guestStarted?.type).toBe("GAME_STARTED");
+    if (hostStarted?.type !== "GAME_STARTED" || guestStarted?.type !== "GAME_STARTED") throw new Error("Expected game start messages.");
+    expect(hostStarted.round.flagSrc).toBe(guestStarted.round.flagSrc);
+    expect(Object.keys(hostStarted.round).sort()).toEqual(["endsAt", "flagSrc", "roundNumber", "startedAt"]);
+  });
+
+  it("rate limits answer bursts per connection", () => {
+    const manager = new RoomManager({ countryIndex, answerRateLimitPerSecond: 1 });
+    const host = new TestConnection();
+
+    manager.handleMessage(host, { type: "CREATE_ROOM", playerName: "Host", modeId: "classic" }, 1000);
+    manager.handleMessage(host, { type: "START_GAME" }, 1010);
+    manager.handleMessage(host, { type: "SUBMIT_ANSWER", answer: "wrong", clientSentAt: 1020 }, 1020);
+    manager.handleMessage(host, { type: "SUBMIT_ANSWER", answer: "wrong", clientSentAt: 1030 }, 1030);
+
+    expect(host.messages.at(-1)).toMatchObject({ type: "ERROR", code: "answer-rate-limited" });
+  });
+});
