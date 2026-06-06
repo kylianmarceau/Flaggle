@@ -6,9 +6,9 @@ body {
   min-height: 100vh;
   color: var(--text);
   background:
-    radial-gradient(circle at 12% 0%, rgba(184, 227, 109, 0.12), transparent 30rem),
-    radial-gradient(circle at 92% 12%, rgba(187, 130, 86, 0.12), transparent 28rem),
-    linear-gradient(180deg, #070907, var(--bg));
+    radial-gradient(circle at 12% -6%, rgba(184, 227, 109, 0.12), transparent 26rem),
+    radial-gradient(circle at 90% 6%, rgba(187, 130, 86, 0.1), transparent 24rem),
+    linear-gradient(180deg, #060806, var(--bg));
   overflow-x: hidden;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
@@ -21,10 +21,10 @@ body::before {
   inset: 0;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(232, 226, 211, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(232, 226, 211, 0.028) 1px, transparent 1px);
-  background-size: 72px 72px;
-  mask-image: linear-gradient(to bottom, #000, transparent 78%);
+    linear-gradient(rgba(232, 226, 211, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 226, 211, 0.022) 1px, transparent 1px);
+  background-size: 84px 84px;
+  mask-image: linear-gradient(to bottom, #000, transparent 74%);
 }
 
 button, input, select { font: inherit; }
@@ -32,14 +32,14 @@ button, input, select { font: inherit; }
 button, select, input {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.03);
   color: var(--text);
 }
 
 button {
-  min-height: 42px;
-  padding: 0 15px;
-  font-weight: 700;
+  min-height: 40px;
+  padding: 0 14px;
+  font-weight: 690;
   cursor: pointer;
   transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
 }
@@ -50,19 +50,19 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 input, select {
-  min-height: 46px;
-  padding: 0 14px;
-  font-weight: 600;
+  min-height: 44px;
+  padding: 0 13px;
+  font-weight: 620;
 }
 
 select option { color: #11160f; background: var(--text); }
 
 h1, h2, p { margin-top: 0; }
-h1, h2 { letter-spacing: -0.035em; }
+h1, h2 { letter-spacing: -0.03em; }
 h1 { font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1; margin-bottom: 0; }
-h2 { font-size: clamp(1.25rem, 2.5vw, 1.7rem); line-height: 1.08; margin-bottom: 10px; }
-p { line-height: 1.55; }
+h2 { font-size: clamp(1.35rem, 2.8vw, 2rem); line-height: 1.04; margin-bottom: 10px; }
+p { line-height: 1.5; }
 
 .primary-action { background: var(--accent); color: #11160f; border-color: var(--accent); }
-.secondary-action, .ghost-action { background: rgba(255, 255, 255, 0.035); }
+.secondary-action, .ghost-action { background: rgba(255, 255, 255, 0.03); }
 .muted { color: var(--muted); }

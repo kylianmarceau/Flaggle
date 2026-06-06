@@ -95,6 +95,8 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   const firstPoolCountryId = initialState.poolCountryIds[0];
   continentSelect.value = mode.id === "continent" && firstPoolCountryId !== undefined ? countryIndex.byId[firstPoolCountryId]?.continent ?? "Africa" : "Africa";
   continentSelect.hidden = mode.id !== "continent";
+  const modeDescription = el("p", { className: "mode-description", text: mode.description });
+
 
   modeSelect.addEventListener(
     "change",
@@ -199,6 +201,19 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     ],
   });
 
+  const boardToggle = el("button", { className: "board-toggle", text: "Show world board", attrs: { type: "button", "aria-expanded": "false" } });
+  const boardBody = el("div", { className: "board-body", children: [board.element] });
+  boardBody.hidden = true;
+  boardToggle.addEventListener(
+    "click",
+    () => {
+      const expanded = boardBody.hidden;
+      boardBody.hidden = !expanded;
+      boardToggle.textContent = expanded ? "Hide world board" : "Show world board";
+      boardToggle.setAttribute("aria-expanded", String(expanded));
+    },
+    { signal: controller.signal },
+  );
 
   const element = el("section", {
     className: "game-screen",
@@ -207,10 +222,9 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
         className: "game-header",
         children: [
           logo,
-          el("div", { className: "mode-controls", children: [modeSelect, continentSelect] }),
+          el("div", { className: "mode-controls", children: [el("div", { className: "mode-select-row", children: [modeSelect, continentSelect] }), modeDescription] }),
         ],
       }),
-      stats.element,
       el("div", {
         className: "play-layout",
         children: [
@@ -218,7 +232,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
           el("aside", {
             className: "answer-panel",
             children: [
-              el("div", { className: "panel-title", children: [el("h2", { text: "Name the place" }), el("p", { text: mode.description })] }),
+              el("div", { className: "panel-title", children: [el("h2", { text: "Name the place" })] }),
               form,
               feedback.element,
               el("div", { className: "actions", children: [hintButton, skipButton, resetButton] }),
@@ -226,7 +240,14 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
           }),
         ],
       }),
-      el("section", { className: "board-panel", children: [el("div", { className: "board-heading", children: [el("h2", { text: "World board" }), el("span", { text: "Solved places reveal themselves by region." })] }), board.element] }),
+      stats.element,
+      el("section", {
+        className: "board-panel",
+        children: [
+          el("div", { className: "board-heading", children: [el("div", { children: [el("h2", { text: "World board" }), el("span", { text: "Optional progress map by region." })] }), boardToggle] }),
+          boardBody,
+        ],
+      }),
     ],
   });
 
