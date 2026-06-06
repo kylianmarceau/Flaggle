@@ -1,5 +1,6 @@
 const COUNTRIES = window.COUNTRIES;
 const TOTAL = COUNTRIES.length;
+const ASSET_VERSION = "2026-06-06-map-mode";
 const CONTINENT_ORDER = ["Africa", "Asia", "Europe", "North America", "Oceania", "South America"];
 const MAP_WIDTH = 1000;
 const MAP_HEIGHT = 560;
@@ -329,7 +330,7 @@ function loadMapData() {
 
   mapLoadPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "data/world-map.js";
+    script.src = "data/world-map.js?v=" + encodeURIComponent(ASSET_VERSION);
     script.onload = () => resolve(window.WORLD_COUNTRY_FEATURES || []);
     script.onerror = () => reject(new Error("Map data failed to load"));
     document.head.appendChild(script);
