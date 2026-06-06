@@ -96,9 +96,9 @@
 
 .play-layout {
   display: grid;
-  grid-template-columns: minmax(520px, 1.4fr) minmax(360px, 0.8fr);
-  gap: 14px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
 }
 
 .flag-card, .answer-panel {
@@ -109,7 +109,7 @@
 }
 
 .flag-card {
-  min-height: clamp(500px, 62vh, 660px);
+  min-height: clamp(520px, 64vh, 720px);
   padding: clamp(14px, 2.4vw, 24px);
   display: grid;
   grid-template-rows: auto 1fr;
@@ -132,7 +132,7 @@
 .flag-slot {
   display: grid;
   place-items: center;
-  min-height: 430px;
+  min-height: clamp(430px, 54vh, 620px);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background:
@@ -142,8 +142,8 @@
 }
 
 .flag-image {
-  width: min(82%, 760px);
-  max-height: min(48vh, 470px);
+  width: min(86%, 920px);
+  max-height: min(54vh, 560px);
   border-radius: var(--radius-md);
   background: #fff;
   box-shadow: 0 22px 54px rgba(0,0,0,0.38);
@@ -156,10 +156,18 @@
 }
 
 .answer-panel {
-  padding: clamp(16px, 2.6vw, 24px);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  width: min(860px, 100%);
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  display: grid;
+  gap: 10px;
+}
+
+.panel-title {
+  display: none;
 }
 
 .panel-title p {
@@ -169,8 +177,8 @@
 
 .guess-form {
   display: grid;
-  gap: 9px;
-  margin: 16px 0 12px;
+  gap: 8px;
+  margin: 0;
 }
 
 .guess-form label {
@@ -186,14 +194,14 @@
 }
 
 .input-row input {
-  min-height: 58px;
-  font-size: 1.05rem;
+  min-height: 62px;
+  font-size: 1.12rem;
 }
 
 .input-row button {
-  min-height: 58px;
-  min-width: 88px;
-  padding-inline: 18px;
+  min-height: 62px;
+  min-width: 104px;
+  padding-inline: 22px;
   white-space: nowrap;
 }
 

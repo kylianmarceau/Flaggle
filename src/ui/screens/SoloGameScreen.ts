@@ -218,13 +218,14 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
             children: [
               el("div", { className: "panel-title", children: [el("h2", { text: "Name the place" })] }),
               form,
+              stats.element,
               feedback.element,
               el("div", { className: "actions", children: [hintButton, skipButton, resetButton] }),
             ],
           }),
         ],
       }),
-      el("div", { className: "secondary-row", children: [stats.element, atlas.element] }),
+      el("div", { className: "secondary-row", children: [atlas.element] }),
     ],
   });
 

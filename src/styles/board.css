@@ -1,9 +1,8 @@
 .secondary-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: stretch;
-  margin-top: 12px;
+  width: min(860px, 100%);
+  display: flex;
+  justify-content: center;
+  margin: 10px auto 0;
 }
 
 .atlas-shell {
