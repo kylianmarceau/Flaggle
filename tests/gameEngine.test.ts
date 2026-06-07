@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { indexCountries, type RawCountry } from "../src/core/countries";
 import { createGameEngine, getCurrentCountry } from "../src/core/game";
-import { classicMode, streakMode } from "../src/core/modes";
 
 const fixtureCountries = [
   { name: "Japan", code: "JP", aliases: ["Nippon"], continent: "Asia", flagSrc: "assets/flags/jp.svg" },
@@ -11,7 +10,7 @@ const fixtureCountries = [
 
 function createFixtureGame(seed = "test-seed") {
   const countryIndex = indexCountries(fixtureCountries);
-  const engine = createGameEngine({ countryIndex, mode: classicMode, seed, now: 1000 });
+  const engine = createGameEngine({ countryIndex, categoryIds: ["flags"], seed, now: 1000 });
   return { countryIndex, engine };
 }
 
@@ -79,44 +78,15 @@ describe("game engine", () => {
     const countryIndex = indexCountries([
       { name: "United States", code: "US", aliases: ["USA"], continent: "North America", flagSrc: "assets/flags/us.svg" },
     ] as const satisfies readonly RawCountry[]);
-    const engine = createGameEngine({ countryIndex, mode: classicMode, seed: "abbr", now: 1000 });
+    const engine = createGameEngine({ countryIndex, categoryIds: ["flags"], seed: "abbr", now: 1000 });
 
     expect(engine.dispatch({ type: "SUBMIT_GUESS", value: "U.S.A.", now: 1100 })[0]?.type).toBe("GUESS_CORRECT");
 
-    const typoEngine = createGameEngine({ countryIndex, mode: classicMode, seed: "abbr", now: 1000 });
+    const typoEngine = createGameEngine({ countryIndex, categoryIds: ["flags"], seed: "abbr", now: 1000 });
     expect(typoEngine.dispatch({ type: "SUBMIT_GUESS", value: "Untied States", now: 1100 })[0]?.type).toBe("GUESS_CORRECT");
   });
 
-  it("expires timed mode when the clock reaches zero", () => {
-    const countryIndex = indexCountries(fixtureCountries);
-    const engine = createGameEngine({ countryIndex, mode: { ...classicMode, id: "timed-test", durationSeconds: 1 }, seed: "timer", now: 1000 });
-
-    expect(engine.getState().timeRemainingMs).toBe(1000);
-    const events = engine.dispatch({ type: "TICK", now: 2000 });
-
-    expect(events.map((event) => event.type)).toEqual(["TIMER_EXPIRED", "GAME_COMPLETED"]);
-    expect(engine.getState().status).toBe("complete");
-    expect(engine.getState().timeRemainingMs).toBe(0);
-  });
-
-  it("keeps timed rush idle until start is pressed", () => {
-    const countryIndex = indexCountries(fixtureCountries);
-    const mode = { ...classicMode, id: "timed-idle", durationSeconds: 120, startsPaused: true };
-    const engine = createGameEngine({ countryIndex, mode, seed: "idle-timer", now: 1000 });
-
-    expect(engine.getState().status).toBe("idle");
-    expect(engine.getState().currentCountryId).toBeNull();
-    expect(engine.getState().timeRemainingMs).toBe(120000);
-
-    const events = engine.dispatch({ type: "START_GAME", modeId: mode.id, seed: "idle-timer", now: 2000 });
-
-    expect(events[0]?.type).toBe("GAME_STARTED");
-    expect(engine.getState().status).toBe("playing");
-    expect(engine.getState().currentCountryId).not.toBeNull();
-    expect(engine.getState().timeRemainingMs).toBe(120000);
-  });
-
-  it("keeps the flag live after a wrong answer", () => {
+  it("keeps the prompt live after a wrong answer", () => {
     const { countryIndex, engine } = createFixtureGame();
     const current = getCurrentCountry(countryIndex, engine.getState());
 
@@ -162,13 +132,31 @@ describe("game engine", () => {
     expect(observedEvents).toContain("GAME_COMPLETED");
   });
 
-  it("ends streak mode after one wrong answer", () => {
+  it("plays a code-prompt category answered by country name", () => {
     const countryIndex = indexCountries(fixtureCountries);
-    const engine = createGameEngine({ countryIndex, mode: streakMode, seed: "streak", now: 1000 });
+    const engine = createGameEngine({ countryIndex, categoryIds: ["codes"], seed: "codes", now: 1000 });
 
-    const events = engine.dispatch({ type: "SUBMIT_GUESS", value: "wrong", now: 1100 });
+    expect(engine.getState().currentCategoryId).toBe("codes");
+    const current = getCurrentCountry(countryIndex, engine.getState());
+    const events = engine.dispatch({ type: "SUBMIT_GUESS", value: current!.name, now: 1100 });
+
+    expect(events[0]?.type).toBe("GUESS_CORRECT");
+  });
+
+  it("mixes only the selected categories across the deck", () => {
+    const countryIndex = indexCountries(fixtureCountries);
+    const engine = createGameEngine({ countryIndex, categoryIds: ["flags", "codes"], seed: "mix", now: 1000 });
+    const seenCategories = new Set<string>();
+
+    while (engine.getState().status === "playing") {
+      const state = engine.getState();
+      if (state.currentCategoryId) seenCategories.add(state.currentCategoryId);
+      const current = getCurrentCountry(countryIndex, state);
+      if (!current) break;
+      engine.dispatch({ type: "SUBMIT_GUESS", value: current.name, now: 1200 });
+    }
 
     expect(engine.getState().status).toBe("complete");
-    expect(events.map((event) => event.type)).toContain("GAME_COMPLETED");
+    for (const categoryId of seenCategories) expect(["flags", "codes"]).toContain(categoryId);
   });
 });

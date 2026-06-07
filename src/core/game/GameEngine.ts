@@ -1,9 +1,17 @@
 import { COUNTRY_FACTS } from "../countries/facts";
 import { normalizeAnswerVariants, type Country, type CountryId, type CountryIndex } from "../countries";
-import type { GameMode, ModeOptions } from "../modes";
+import { buildPromptSlots, getCategory } from "../categories";
 import { createRoundQueue, takeNextCountry } from "./roundQueue";
 import type { CreateGameEngineInput, GameCommand, GameEngine, GameEvent, GameState, Hint } from "./types";
-import { isAcceptedCountryGuess } from "./answerMatching";
+
+// Single "infinite" mode policy (the only mode now): endless run, hints on, skips on, no timer.
+const STREAK_SCORE_CAP = 10;
+const CORRECT_BASE_POINTS = 100;
+const STREAK_BONUS_POINTS = 10;
+
+function correctGuessPoints(streak: number): number {
+  return CORRECT_BASE_POINTS + Math.min(streak, STREAK_SCORE_CAP) * STREAK_BONUS_POINTS;
+}
 
 function countNameLetters(name: string): number {
   return name.replace(/[^A-Za-z]/g, "").length;
@@ -41,33 +49,28 @@ function createHint(country: Country, level: number): Hint {
   };
 }
 
-function calculateTimeRemainingMs(state: Pick<GameState, "startedAt" | "timeLimitSeconds">, now: number): number | null {
-  if (state.startedAt === null || state.timeLimitSeconds === null) return null;
-  return Math.max(0, state.timeLimitSeconds * 1000 - (now - state.startedAt));
+// Seeded category-per-country assignment shared by createInitialState and matching. One slot per
+// country; selecting multiple categories interleaves their prompt types into a single deck.
+function buildAssignments(index: CountryIndex, categoryIds: readonly string[], seed: string): ReadonlyMap<CountryId, string> {
+  return new Map(buildPromptSlots(index, categoryIds, seed).map((slot) => [slot.countryId, slot.categoryId]));
 }
-
-function withUpdatedTimer(state: GameState, now: number): GameState {
-  return { ...state, timeRemainingMs: calculateTimeRemainingMs(state, now) };
-}
-
 
 function createInitialState(
-  index: CountryIndex,
-  mode: GameMode,
+  assignments: ReadonlyMap<CountryId, string>,
+  categoryIds: readonly string[],
   seed: string,
   now: number,
-  modeOptions: ModeOptions | undefined,
-  start = !mode.startsPaused,
 ): GameState {
-  const poolCountryIds = mode.createCountryPool(index.countries, modeOptions);
+  const poolCountryIds = [...assignments.keys()];
   const initialQueue = createRoundQueue(poolCountryIds, seed);
-  const next = start ? takeNextCountry(initialQueue, new Set<CountryId>()) : { countryId: null, queue: initialQueue };
-  const status = start ? (next.countryId === null ? "complete" : "playing") : "idle";
+  const next = takeNextCountry(initialQueue, new Set<CountryId>());
+  const status = next.countryId === null ? "complete" : "playing";
   return {
     status,
-    modeId: mode.id,
+    categoryIds: [...categoryIds],
     seed,
     currentCountryId: next.countryId,
+    currentCategoryId: next.countryId === null ? null : assignments.get(next.countryId) ?? null,
     roundNumber: next.countryId === null ? 0 : 1,
     guessedCountryIds: new Set<CountryId>(),
     skippedCountryIds: new Set<CountryId>(),
@@ -77,10 +80,8 @@ function createInitialState(
     streak: 0,
     bestStreak: 0,
     score: 0,
-    timeLimitSeconds: mode.durationSeconds ?? null,
-    timeRemainingMs: mode.durationSeconds === undefined ? null : mode.durationSeconds * 1000,
     hintLevel: 0,
-    startedAt: start ? now : null,
+    startedAt: now,
     endedAt: status === "complete" ? now : null,
     lastResult: null,
     queue: next.queue,
@@ -90,13 +91,15 @@ function createInitialState(
 
 function advanceToNextCountry(
   state: GameState,
+  assignments: ReadonlyMap<CountryId, string>,
   now: number,
-): Pick<GameState, "currentCountryId" | "queue" | "roundNumber" | "status" | "endedAt" | "hintLevel"> {
+): Pick<GameState, "currentCountryId" | "currentCategoryId" | "queue" | "roundNumber" | "status" | "endedAt" | "hintLevel"> {
   const next = takeNextCountry(state.queue, state.guessedCountryIds);
   const complete = next.countryId === null;
 
   return {
     currentCountryId: next.countryId,
+    currentCategoryId: next.countryId === null ? null : assignments.get(next.countryId) ?? null,
     queue: next.queue,
     roundNumber: complete ? state.roundNumber : state.roundNumber + 1,
     status: complete ? "complete" : "playing",
@@ -106,21 +109,23 @@ function advanceToNextCountry(
 }
 
 export function createGameEngine(input: CreateGameEngineInput): GameEngine {
-  const { countryIndex, mode, seed, modeOptions } = input;
-  let state = input.initialState ?? createInitialState(countryIndex, mode, seed, input.now ?? Date.now(), modeOptions);
+  const { countryIndex } = input;
+  let categoryIds = input.initialState?.categoryIds ?? input.categoryIds;
+  let assignments = buildAssignments(countryIndex, categoryIds, input.initialState?.seed ?? input.seed);
+  let state = input.initialState ?? createInitialState(assignments, categoryIds, input.seed, input.now ?? Date.now());
+
+  function categoryFor(countryId: CountryId) {
+    return getCategory(assignments.get(countryId) ?? "") ?? getCategory("flags");
+  }
+
   function completeIfNeeded(events: GameEvent[], now: number): void {
     if (state.status === "complete") {
       if (state.endedAt === now && !events.some((event) => event.type === "GAME_COMPLETED")) events.push({ type: "GAME_COMPLETED" });
       return;
     }
-    state = withUpdatedTimer(state, now);
-    const timerExpired = state.timeRemainingMs !== null && state.timeRemainingMs <= 0;
-    if (timerExpired && !events.some((event) => event.type === "TIMER_EXPIRED")) {
-      events.push({ type: "TIMER_EXPIRED" });
-    }
 
-    if (timerExpired || mode.isComplete(state, state.poolCountryIds.length)) {
-      if (state.status !== "complete") state = { ...state, status: "complete", currentCountryId: null, endedAt: now, timeRemainingMs: timerExpired ? 0 : state.timeRemainingMs };
+    if (state.guessedCountryIds.size >= state.poolCountryIds.length) {
+      state = { ...state, status: "complete", currentCountryId: null, currentCategoryId: null, endedAt: now };
       if (!events.some((event) => event.type === "GAME_COMPLETED")) events.push({ type: "GAME_COMPLETED" });
     }
   }
@@ -131,7 +136,10 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
       const events: GameEvent[] = [];
 
       if (command.type === "START_GAME" || command.type === "RESET_GAME") {
-        state = createInitialState(countryIndex, mode, command.type === "START_GAME" ? command.seed : seed, command.now, modeOptions, command.type === "START_GAME");
+        if (command.type === "START_GAME") categoryIds = command.categoryIds;
+        const seed = command.type === "START_GAME" ? command.seed : state.seed;
+        assignments = buildAssignments(countryIndex, categoryIds, seed);
+        state = createInitialState(assignments, categoryIds, seed, command.now);
         if (state.currentCountryId !== null) events.push({ type: "GAME_STARTED", currentCountryId: state.currentCountryId });
         if (command.type === "RESET_GAME") events.push({ type: "GAME_RESET" });
         return events;
@@ -142,22 +150,17 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
         return events;
       }
 
-      state = withUpdatedTimer(state, command.now);
-      completeIfNeeded(events, command.now);
-      if (events.some((event) => event.type === "TIMER_EXPIRED")) return events;
-
       if (state.status !== "playing" || state.currentCountryId === null) return events;
 
       const currentCountry = countryIndex.byId[state.currentCountryId];
-      if (!currentCountry) return events;
+      const category = categoryFor(state.currentCountryId);
+      if (!currentCountry || !category) return events;
 
       if (command.type === "REQUEST_HINT") {
-        if (!mode.hints.enabled) return events;
         const hint = createHint(currentCountry, state.hintLevel);
         state = {
           ...state,
           hintLevel: state.hintLevel + 1,
-          score: Math.max(0, state.score - mode.hints.penaltyPoints),
           lastResult: { type: "hint", countryId: currentCountry.id, message: `${hint.title}: ${hint.message}` },
         };
         events.push({ type: "HINT_REVEALED", countryId: currentCountry.id, hint });
@@ -165,17 +168,16 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
       }
 
       if (command.type === "SKIP_ROUND") {
-        if (!mode.allowSkip) return events;
         const skippedCountryIds = new Set(state.skippedCountryIds);
         skippedCountryIds.add(currentCountry.id);
         const queue = { remainingCountryIds: [...state.queue.remainingCountryIds, currentCountry.id] };
-        const advanced = advanceToNextCountry({ ...state, skippedCountryIds, queue }, command.now);
+        const advanced = advanceToNextCountry({ ...state, skippedCountryIds, queue }, assignments, command.now);
         state = {
           ...state,
           ...advanced,
           skippedCountryIds,
           streak: 0,
-          lastResult: { type: "skipped", countryId: currentCountry.id, message: `Skipped ${currentCountry.name}.` },
+          lastResult: { type: "skipped", countryId: currentCountry.id, message: `Skipped ${category.reveal(currentCountry)}.` },
         };
         events.push({ type: "ROUND_SKIPPED", previousCountryId: currentCountry.id, nextCountryId: state.currentCountryId });
         completeIfNeeded(events, command.now);
@@ -186,12 +188,12 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
 
       if (normalizeAnswerVariants(command.value).length === 0) return events;
 
-      if (isAcceptedCountryGuess(currentCountry, command.value, mode, command.auto ?? false)) {
+      if (category.accepts(currentCountry, command.value, command.auto ?? false)) {
         const guessedCountryIds = new Set(state.guessedCountryIds);
         guessedCountryIds.add(currentCountry.id);
         const nextStreak = state.streak + 1;
-        const scoreDelta = mode.scoreCorrectGuess({ state, answeredAt: command.now, countryId: currentCountry.id });
-        const advanced = advanceToNextCountry({ ...state, guessedCountryIds }, command.now);
+        const points = correctGuessPoints(state.streak);
+        const advanced = advanceToNextCountry({ ...state, guessedCountryIds }, assignments, command.now);
         state = {
           ...state,
           ...advanced,
@@ -200,28 +202,24 @@ export function createGameEngine(input: CreateGameEngineInput): GameEngine {
           correctAnswers: state.correctAnswers + 1,
           streak: nextStreak,
           bestStreak: Math.max(state.bestStreak, nextStreak),
-          score: state.score + scoreDelta.points,
-          lastResult: { type: "correct", countryId: currentCountry.id, message: `Correct: ${currentCountry.name}.` },
+          score: state.score + points,
+          lastResult: { type: "correct", countryId: currentCountry.id, message: `Correct: ${category.reveal(currentCountry)}.` },
         };
-        events.push({ type: "GUESS_CORRECT", countryId: currentCountry.id, nextCountryId: state.currentCountryId, points: scoreDelta.points });
+        events.push({ type: "GUESS_CORRECT", countryId: currentCountry.id, nextCountryId: state.currentCountryId, points });
         completeIfNeeded(events, command.now);
         return events;
       }
 
       if (command.auto) return events;
 
-      const wrongDelta = mode.scoreWrongGuess({ state, answeredAt: command.now, countryId: currentCountry.id });
-      const wrongState: GameState = {
+      state = {
         ...state,
         attempts: state.attempts + 1,
         wrongAnswers: state.wrongAnswers + 1,
         streak: 0,
-        score: Math.max(0, state.score + wrongDelta.points),
-        lastResult: { type: "wrong", countryId: currentCountry.id, message: "Not quite. The flag is still live." },
+        lastResult: { type: "wrong", countryId: currentCountry.id, message: "Not quite. The prompt is still live." },
       };
-      state = mode.id === "streak" ? { ...wrongState, status: "complete", currentCountryId: null, endedAt: command.now } : wrongState;
       events.push({ type: "GUESS_WRONG", countryId: currentCountry.id });
-      completeIfNeeded(events, command.now);
       return events;
     },
   };

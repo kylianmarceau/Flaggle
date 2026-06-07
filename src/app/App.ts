@@ -1,7 +1,7 @@
-import { type Continent, type CountryIndex } from "../core/countries";
+import { type CountryIndex } from "../core/countries";
 import { createGameEngine, createRandomSeed, type GameEngine, type GameState } from "../core/game";
+import { DEFAULT_CATEGORY_IDS, resolveCategoryIds } from "../core/categories";
 import { clearSoloSave, hydrateGameState, readSoloSave, saveSoloGame } from "../storage/localSave";
-import { selectableModes, getGameMode, type GameMode, type GameModeId } from "../core/modes";
 import { createWebSocketMultiplayerTransport, resolveDefaultWebSocketUrl, type MultiplayerTransport } from "../core/multiplayer";
 import { createSoloGameScreen } from "../ui/screens/SoloGameScreen";
 import { createMultiplayerLobbyScreen } from "../ui/screens/MultiplayerLobbyScreen";
@@ -18,12 +18,11 @@ export interface App {
   readonly navigate: (route: AppRoute) => void;
 }
 
-function createEngine(countryIndex: CountryIndex, mode: GameMode, continent: Continent | undefined, initialState: GameState | null): GameEngine {
+function createEngine(countryIndex: CountryIndex, categoryIds: readonly string[], initialState: GameState | null): GameEngine {
   return createGameEngine({
     countryIndex,
-    mode,
+    categoryIds,
     seed: initialState?.seed ?? createRandomSeed(),
-    ...(continent ? { modeOptions: { continent } } : {}),
     ...(initialState ? { initialState } : {}),
   });
 }
@@ -41,21 +40,21 @@ export function createApp(options: AppOptions): App {
     options.root.replaceChildren(screen.element);
   }
 
-  function startSolo(modeId: GameModeId, continent?: Continent, continueSaved = false): void {
-    const mode = getGameMode(modeId);
+  function startSolo(categoryIds: readonly string[], continueSaved = false): void {
+    const resolved = resolveCategoryIds(categoryIds);
     const save = continueSaved ? readSoloSave(options.storage) : null;
-    const initialState = save && save.modeId === mode.id ? hydrateGameState(options.countryIndex, mode, save) : null;
-    const engine = createEngine(options.countryIndex, mode, continent, initialState);
+    const initialState = save ? hydrateGameState(options.countryIndex, save) : null;
+    const activeCategories = initialState ? initialState.categoryIds : resolved;
+    const engine = createEngine(options.countryIndex, activeCategories, initialState);
 
     mount(
       createSoloGameScreen({
         countryIndex: options.countryIndex,
         engine,
-        mode,
-        modes: selectableModes,
-        onModeChange: (nextModeId, nextContinent) => {
+        categoryIds: activeCategories,
+        onCategoryChange: (nextCategoryIds) => {
           clearSoloSave(options.storage);
-          startSolo(nextModeId, nextContinent, false);
+          startSolo(nextCategoryIds, false);
         },
         onReset: () => clearSoloSave(options.storage),
         onStateChange: (state) => saveSoloGame(options.storage, options.countryIndex, state),
@@ -67,12 +66,10 @@ export function createApp(options: AppOptions): App {
   function startMultiplayer(): void {
     mount(
       createMultiplayerLobbyScreen({
-        modes: selectableModes,
         createOnlineTransport: createDefaultOnlineTransport,
         onBackToSolo: () => {
           const save = readSoloSave(options.storage);
-          const savedModeId = save?.modeId ? (save.modeId as GameModeId) : "classic";
-          startSolo(savedModeId, undefined, save !== null);
+          startSolo(save?.categoryIds ?? DEFAULT_CATEGORY_IDS, save !== null);
         },
       }),
     );
@@ -80,7 +77,7 @@ export function createApp(options: AppOptions): App {
 
   function navigate(route: AppRoute): void {
     if (route.type === "solo-game") {
-      startSolo(route.modeId, route.continent, route.continueSaved ?? false);
+      startSolo(route.categoryIds ?? DEFAULT_CATEGORY_IDS, route.continueSaved ?? false);
       return;
     }
 
@@ -88,14 +85,10 @@ export function createApp(options: AppOptions): App {
       startMultiplayer();
       return;
     }
-
-    const save = readSoloSave(options.storage);
-    const savedModeId = save?.modeId ? (save.modeId as GameModeId) : "classic";
-    startSolo(savedModeId, undefined, save !== null);
   }
 
   return {
-    start: () => navigate({ type: "solo-game", modeId: "classic", continueSaved: true }),
+    start: () => navigate({ type: "solo-game", continueSaved: true }),
     navigate,
   };
 }

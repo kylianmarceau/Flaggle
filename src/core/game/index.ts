@@ -1,5 +1,4 @@
 export { createGameEngine } from "./GameEngine";
-export { isAcceptedCountryGuess } from "./answerMatching";
 export { createRandomSeed, createSeededRandom, hashSeed, shuffle } from "./random";
 export { createRoundQueue, restoreRoundQueue, takeNextCountry } from "./roundQueue";
 export { getCurrentCountry, getGameStats, getGuessedCountriesByContinent } from "./selectors";

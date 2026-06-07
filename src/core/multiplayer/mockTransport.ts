@@ -1,5 +1,5 @@
 import type { ClientMessage, MultiplayerTransport, ServerMessage, TransportStatus } from "./protocol";
-import type { PublicPlayerState, PublicRoomState, PublicRoundState } from "./roomTypes";
+import type { FinalResult, PublicPlayerState, PublicPromptContent, PublicRoomState, PublicRoundState } from "./roomTypes";
 
 const HOST_PLAYER_ID = "host";
 const RIVAL_PLAYER_ID = "rival";
@@ -7,6 +7,15 @@ const DEMO_ROOM_CODE = "PIN42";
 const DEMO_SESSION_TOKEN = "demo-session";
 const DEMO_ROUND_MS = 30_000;
 const DEMO_RESULT_MS = 2_000;
+
+// A tiny scripted game so the local demo exercises the full arc — rounds, the intermission
+// gap, and the end-of-game leaderboard — without a server.
+// A tiny scripted, category-mixed game: round 1 is a flag, round 2 is an ISO code — proving
+// Flags + Codes interleave in one deck, plus the intermission gap and end-of-game leaderboard.
+const DEMO_ROUNDS: ReadonlyArray<{ readonly prompt: PublicPromptContent; readonly answer: string; readonly reveal: string }> = [
+  { prompt: { kind: "image", value: "assets/flags/jp.svg" }, answer: "japan", reveal: "Japan" },
+  { prompt: { kind: "text", value: "BR" }, answer: "brazil", reveal: "Brazil (BR)" },
+];
 
 function createPlayer(id: string, name: string, ready: boolean): PublicPlayerState {
   return { id, name, connected: true, ready, score: 0, streak: 0, correctAnswers: 0, wrongAnswers: 0 };
@@ -17,16 +26,22 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
   const messageHandlers = new Set<(message: ServerMessage) => void>();
   const statusHandlers = new Set<(status: TransportStatus) => void>();
   let assignedPlayerId = HOST_PLAYER_ID;
-  let room: PublicRoomState = {
-    roomCode: DEMO_ROOM_CODE,
-    hostPlayerId: HOST_PLAYER_ID,
-    modeId: "classic",
-    status: "lobby",
-    players: [createPlayer(HOST_PLAYER_ID, "You", false), createPlayer(RIVAL_PLAYER_ID, "Rival", true)],
-    round: null,
-    phaseStartedAt: null,
-    phaseEndsAt: null,
-  };
+  let roundIndex = -1;
+  let advanceTimer: ReturnType<typeof setTimeout> | null = null;
+  let room: PublicRoomState = lobbyRoom(["flags", "codes"], "You");
+
+  function lobbyRoom(categoryIds: readonly string[], hostName: string): PublicRoomState {
+    return {
+      roomCode: DEMO_ROOM_CODE,
+      hostPlayerId: HOST_PLAYER_ID,
+      categoryIds: [...categoryIds],
+      status: "lobby",
+      players: [createPlayer(HOST_PLAYER_ID, hostName, false), createPlayer(RIVAL_PLAYER_ID, "Rival", true)],
+      round: null,
+      phaseStartedAt: null,
+      phaseEndsAt: null,
+    };
+  }
 
   function setStatus(nextStatus: TransportStatus): void {
     status = nextStatus;
@@ -50,6 +65,36 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
     room = { ...room, players: room.players.map((player) => (player.id === assignedPlayerId ? update(player) : player)) };
   }
 
+  function clearAdvanceTimer(): void {
+    if (advanceTimer !== null) {
+      clearTimeout(advanceTimer);
+      advanceTimer = null;
+    }
+  }
+
+  function beginRound(index: number): void {
+    roundIndex = index;
+    const startedAt = Date.now();
+    const data = DEMO_ROUNDS[index];
+    if (!data) return;
+    const round: PublicRoundState = { roundNumber: index + 1, prompt: data.prompt, startedAt, endsAt: startedAt + DEMO_ROUND_MS };
+    room = { ...room, status: "playing", round, phaseStartedAt: startedAt, phaseEndsAt: round.endsAt };
+    emit({ type: index === 0 ? "GAME_STARTED" : "ROUND_STARTED", round });
+    emitSnapshot();
+  }
+
+  function finalStandings(): readonly FinalResult[] {
+    return [...room.players]
+      .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name))
+      .map((player, index) => ({ playerId: player.id, name: player.name, rank: index + 1, score: player.score, correctAnswers: player.correctAnswers }));
+  }
+
+  function completeGame(): void {
+    room = { ...room, status: "complete", round: null, phaseStartedAt: null, phaseEndsAt: null };
+    emit({ type: "GAME_COMPLETED", results: finalStandings() });
+    emitSnapshot();
+  }
+
   return {
     connect: async () => {
       setStatus("connecting");
@@ -58,31 +103,29 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
       assign(assignedPlayerId);
       emitSnapshot();
     },
-    disconnect: () => setStatus("disconnected"),
+    disconnect: () => {
+      clearAdvanceTimer();
+      setStatus("disconnected");
+    },
     send: (message: ClientMessage) => {
       if (message.type === "CREATE_ROOM") {
+        clearAdvanceTimer();
+        roundIndex = -1;
         assignedPlayerId = HOST_PLAYER_ID;
-        room = {
-          roomCode: DEMO_ROOM_CODE,
-          hostPlayerId: HOST_PLAYER_ID,
-          modeId: message.modeId,
-          status: "lobby",
-          players: [createPlayer(HOST_PLAYER_ID, message.playerName, false), createPlayer(RIVAL_PLAYER_ID, "Rival", true)],
-          round: null,
-          phaseStartedAt: null,
-          phaseEndsAt: null,
-        };
+        room = lobbyRoom(message.categoryIds, message.playerName);
         assign(HOST_PLAYER_ID);
         emitSnapshot();
         return;
       }
 
       if (message.type === "JOIN_ROOM") {
+        clearAdvanceTimer();
+        roundIndex = -1;
         assignedPlayerId = "guest";
         room = {
           roomCode: message.roomCode || DEMO_ROOM_CODE,
           hostPlayerId: HOST_PLAYER_ID,
-          modeId: "classic",
+          categoryIds: ["flags", "codes"],
           status: "lobby",
           players: [createPlayer(HOST_PLAYER_ID, "Host", true), createPlayer("guest", message.playerName, false)],
           round: null,
@@ -101,6 +144,7 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
       }
 
       if (message.type === "LEAVE_ROOM") {
+        clearAdvanceTimer();
         room = { ...room, players: room.players.filter((player) => player.id !== assignedPlayerId) };
         emit({ type: "PLAYER_LEFT", playerId: assignedPlayerId, name: "You" });
         emitSnapshot();
@@ -114,33 +158,58 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
       }
 
       if (message.type === "START_GAME") {
-        const startedAt = Date.now();
-        const round: PublicRoundState = { roundNumber: 1, flagSrc: "assets/flags/jp.svg", startedAt, endsAt: startedAt + DEMO_ROUND_MS };
-        room = { ...room, status: "playing", round, phaseStartedAt: startedAt, phaseEndsAt: round.endsAt };
-        emit({ type: "GAME_STARTED", round });
+        clearAdvanceTimer();
+        room = { ...room, players: room.players.map((player) => ({ ...player, score: 0, streak: 0, correctAnswers: 0, wrongAnswers: 0 })) };
+        beginRound(0);
+        return;
+      }
+
+      if (message.type === "PLAY_AGAIN") {
+        // Mirror the server: a rematch returns to the lobby (not an instant restart). Keep the
+        // scripted rival ready so the single-human demo can immediately ready up and start again.
+        clearAdvanceTimer();
+        roundIndex = -1;
+        room = {
+          ...room,
+          status: "lobby",
+          round: null,
+          phaseStartedAt: null,
+          phaseEndsAt: null,
+          players: room.players.map((player) => ({ ...player, ready: player.id !== assignedPlayerId, score: 0, streak: 0, correctAnswers: 0, wrongAnswers: 0 })),
+        };
         emitSnapshot();
         return;
       }
 
       if (message.type === "SUBMIT_ANSWER") {
-        if (message.answer.trim().toLowerCase() !== "japan") {
+        const data = DEMO_ROUNDS[roundIndex];
+        if (!data || room.status !== "playing") return;
+
+        if (message.answer.trim().toLowerCase() !== data.answer) {
           updateAssignedPlayer((player) => ({ ...player, wrongAnswers: player.wrongAnswers + 1, streak: 0 }));
           emit({ type: "ANSWER_REJECTED", reason: "Not quite. Try again before the round ends." });
           return;
         }
 
-        const points = 120;
+        const points = 120 - roundIndex * 10;
         const closedAt = Date.now();
         updateAssignedPlayer((player) => ({ ...player, score: player.score + points, streak: player.streak + 1, correctAnswers: player.correctAnswers + 1 }));
         room = { ...room, status: "round-result", phaseStartedAt: closedAt, phaseEndsAt: closedAt + DEMO_RESULT_MS };
         emit({ type: "ANSWER_ACCEPTED", playerId: assignedPlayerId, points });
         emit({
           type: "ROUND_ENDED",
-          countryCode: "JP",
-          countryName: "Japan",
-          results: room.players.map((player) => ({ playerId: player.id, correct: player.id === assignedPlayerId, points: player.id === assignedPlayerId ? points : 0, answeredAt: player.id === assignedPlayerId ? closedAt : null })),
+          answer: data.reveal,
+          results: room.players.map((player) => ({ playerId: player.id, name: player.name, correct: player.id === assignedPlayerId, points: player.id === assignedPlayerId ? points : 0, answeredAt: player.id === assignedPlayerId ? closedAt : null })),
         });
         emitSnapshot();
+
+        const nextIndex = roundIndex + 1;
+        clearAdvanceTimer();
+        advanceTimer = setTimeout(() => {
+          advanceTimer = null;
+          if (nextIndex < DEMO_ROUNDS.length) beginRound(nextIndex);
+          else completeGame();
+        }, DEMO_RESULT_MS);
       }
     },
     onMessage: (handler) => {

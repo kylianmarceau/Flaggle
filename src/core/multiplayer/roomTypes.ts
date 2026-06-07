@@ -12,9 +12,14 @@ export interface PublicPlayerState {
   readonly wrongAnswers: number;
 }
 
+export interface PublicPromptContent {
+  readonly kind: "image" | "text";
+  readonly value: string;
+}
+
 export interface PublicRoundState {
   readonly roundNumber: number;
-  readonly flagSrc: string;
+  readonly prompt: PublicPromptContent;
   readonly startedAt: number;
   readonly endsAt: number | null;
 }
@@ -22,7 +27,7 @@ export interface PublicRoundState {
 export interface PublicRoomState {
   readonly roomCode: RoomCode;
   readonly hostPlayerId: PlayerId;
-  readonly modeId: string;
+  readonly categoryIds: readonly string[];
   readonly status: "lobby" | "playing" | "round-result" | "complete";
   readonly players: readonly PublicPlayerState[];
   readonly round: PublicRoundState | null;
@@ -35,6 +40,7 @@ export interface PublicRoomState {
 
 export interface RoundResult {
   readonly playerId: PlayerId;
+  readonly name: string;
   readonly correct: boolean;
   readonly points: number;
   readonly answeredAt: number | null;
@@ -42,6 +48,7 @@ export interface RoundResult {
 
 export interface FinalResult {
   readonly playerId: PlayerId;
+  readonly name: string;
   readonly rank: number;
   readonly score: number;
   readonly correctAnswers: number;

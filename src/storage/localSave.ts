@@ -1,14 +1,13 @@
+import { buildPromptSlots } from "../core/categories";
 import type { CountryId, CountryIndex } from "../core/countries";
 import type { GameState } from "../core/game";
-import type { GameMode } from "../core/modes";
-import { createRoundQueue } from "../core/game/roundQueue";
 
-export const SOLO_SAVE_KEY = "locato:solo:v1";
+export const SOLO_SAVE_KEY = "locato:solo:v2";
 
-export interface SoloSaveV1 {
-  readonly version: 1;
+export interface SoloSave {
+  readonly version: 2;
   readonly status?: GameState["status"];
-  readonly modeId: string;
+  readonly categoryIds: readonly string[];
   readonly seed: string;
   readonly currentCountryCode: string | null;
   readonly queueCountryCodes: readonly string[];
@@ -21,7 +20,6 @@ export interface SoloSaveV1 {
   readonly streak: number;
   readonly bestStreak: number;
   readonly score: number;
-  readonly timeLimitSeconds?: number | null;
   readonly roundNumber: number;
   readonly startedAt: number;
   readonly updatedAt: number;
@@ -45,13 +43,13 @@ function idsFromCodes(index: CountryIndex, countryCodes: readonly string[]): Cou
   return ids;
 }
 
-export function createSoloSave(index: CountryIndex, state: GameState, updatedAt: number): SoloSaveV1 {
+export function createSoloSave(index: CountryIndex, state: GameState, updatedAt: number): SoloSave {
   const currentCountry = state.currentCountryId === null ? null : index.byId[state.currentCountryId] ?? null;
 
   return {
     status: state.status,
-    version: 1,
-    modeId: state.modeId,
+    version: 2,
+    categoryIds: [...state.categoryIds],
     seed: state.seed,
     currentCountryCode: currentCountry?.code ?? null,
     queueCountryCodes: codesFromIds(index, state.queue.remainingCountryIds),
@@ -64,7 +62,6 @@ export function createSoloSave(index: CountryIndex, state: GameState, updatedAt:
     streak: state.streak,
     bestStreak: state.bestStreak,
     score: state.score,
-    timeLimitSeconds: state.timeLimitSeconds,
     roundNumber: state.roundNumber,
     startedAt: state.startedAt ?? updatedAt,
     updatedAt,
@@ -79,19 +76,19 @@ export function clearSoloSave(storage: Storage): void {
   storage.removeItem(SOLO_SAVE_KEY);
 }
 
-export function readSoloSave(storage: Storage): SoloSaveV1 | null {
+export function readSoloSave(storage: Storage): SoloSave | null {
   const raw = storage.getItem(SOLO_SAVE_KEY);
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as Partial<SoloSaveV1>;
-    return parsed.version === 1 && typeof parsed.seed === "string" && typeof parsed.modeId === "string" ? (parsed as SoloSaveV1) : null;
+    const parsed = JSON.parse(raw) as Partial<SoloSave>;
+    return parsed.version === 2 && typeof parsed.seed === "string" && Array.isArray(parsed.categoryIds) ? (parsed as SoloSave) : null;
   } catch {
     return null;
   }
 }
 
-export function hydrateGameState(index: CountryIndex, mode: GameMode, save: SoloSaveV1): GameState | null {
+export function hydrateGameState(index: CountryIndex, save: SoloSave): GameState | null {
   const currentCountryId = save.currentCountryCode ? index.byCode.get(save.currentCountryCode)?.id ?? null : null;
   const guessedCountryIds = new Set(idsFromCodes(index, save.guessedCountryCodes));
   const skippedCountryIds = new Set(idsFromCodes(index, save.skippedCountryCodes));
@@ -99,17 +96,17 @@ export function hydrateGameState(index: CountryIndex, mode: GameMode, save: Solo
   const queueCountryIds = idsFromCodes(index, save.queueCountryCodes);
 
   if (poolCountryIds.length === 0) return null;
-  const timeLimitSeconds = save.timeLimitSeconds ?? mode.durationSeconds ?? null;
-  const savedStatus = save.status ?? (save.currentCountryCode === null && mode.startsPaused ? "idle" : undefined);
-  const timeRemainingMs =
-    timeLimitSeconds === null ? null : savedStatus === "idle" ? timeLimitSeconds * 1000 : Math.max(0, timeLimitSeconds * 1000 - (Date.now() - save.startedAt));
 
+  // Category-per-country is deterministic from (categoryIds, seed), so recompute it rather than persist it.
+  const assignments = new Map(buildPromptSlots(index, save.categoryIds, save.seed).map((slot) => [slot.countryId, slot.categoryId]));
+  const status = save.status === "idle" ? "playing" : save.status ?? (currentCountryId === null ? "complete" : "playing");
 
   return {
-    status: savedStatus ?? (currentCountryId === null || timeRemainingMs === 0 ? "complete" : "playing"),
-    modeId: mode.id,
+    status,
+    categoryIds: [...save.categoryIds],
     seed: save.seed,
     currentCountryId,
+    currentCategoryId: currentCountryId === null ? null : assignments.get(currentCountryId) ?? null,
     roundNumber: save.roundNumber,
     guessedCountryIds,
     skippedCountryIds,
@@ -120,12 +117,10 @@ export function hydrateGameState(index: CountryIndex, mode: GameMode, save: Solo
     bestStreak: save.bestStreak,
     score: save.score,
     hintLevel: 0,
-    timeLimitSeconds,
-    timeRemainingMs,
-    startedAt: savedStatus === "idle" ? null : save.startedAt,
-    endedAt: savedStatus === "idle" ? null : currentCountryId === null || timeRemainingMs === 0 ? save.updatedAt : null,
+    startedAt: save.startedAt,
+    endedAt: currentCountryId === null ? save.updatedAt : null,
     lastResult: null,
-    queue: queueCountryIds.length > 0 ? { remainingCountryIds: queueCountryIds } : createRoundQueue([], save.seed),
+    queue: queueCountryIds.length > 0 ? { remainingCountryIds: queueCountryIds } : { remainingCountryIds: [] },
     poolCountryIds,
   };
 }

@@ -64,6 +64,11 @@
   grid-column: 1 / -1;
 }
 
+.multiplayer-form-grid .category-row {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
 .room-code-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -347,4 +352,103 @@
   .score-meta {
     grid-column: auto;
   }
+}
+
+/* End-of-game leaderboard modal. */
+.multiplayer-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 11, 8, 0.74);
+  backdrop-filter: blur(4px);
+}
+
+.multiplayer-modal {
+  width: min(34rem, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 16px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.multiplayer-modal .modal-headline {
+  margin: 0;
+  color: var(--accent);
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  line-height: 1.05;
+}
+
+.leaderboard {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.leaderboard-row.is-winner {
+  border-color: rgba(184, 227, 109, 0.5);
+  background: var(--accent-soft);
+}
+
+.leaderboard-row.is-local .leaderboard-name {
+  color: var(--accent);
+  font-weight: 720;
+}
+
+.leaderboard-rank {
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.leaderboard-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-score {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.leaderboard-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.multiplayer-modal .actions {
+  display: flex;
+  gap: 10px;
+}
+
+.multiplayer-modal .actions button {
+  flex: 1;
+}
+
+.multiplayer-modal .modal-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
 }

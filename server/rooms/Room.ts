@@ -1,6 +1,6 @@
 import type { CountryId, CountryIndex } from "../../src/core/countries";
-import { createRoundQueue, isAcceptedCountryGuess, takeNextCountry, type RoundQueue } from "../../src/core/game";
-import { getGameMode, type GameMode } from "../../src/core/modes";
+import { createSeededRandom, shuffle } from "../../src/core/game";
+import { buildPromptSlots, getCategory, type PromptSlot } from "../../src/core/categories";
 import type { FinalResult, PlayerId, PublicPlayerState, PublicRoomState, PublicRoundState, RoomCode, RoundResult, ServerMessage } from "../../src/core/multiplayer";
 
 export const DEFAULT_MAX_PLAYERS_PER_ROOM = 8;
@@ -15,7 +15,7 @@ export interface RoomOptions {
   readonly hostPlayerId: PlayerId;
   readonly hostName: string;
   readonly countryIndex: CountryIndex;
-  readonly modeId: string;
+  readonly categoryIds: readonly string[];
   readonly seed: string;
   readonly now: number;
   readonly maxPlayers?: number;
@@ -29,6 +29,7 @@ interface PrivatePlayerState extends PublicPlayerState {}
 interface PrivateRoundState {
   readonly roundNumber: number;
   readonly countryId: CountryId;
+  readonly categoryId: string;
   readonly startedAt: number;
   readonly endsAt: number | null;
 }
@@ -52,8 +53,9 @@ function toPublicPlayer(player: PrivatePlayerState): PublicPlayerState {
 function toPublicRound(round: PrivateRoundState | null, index: CountryIndex): PublicRoundState | null {
   if (!round) return null;
   const country = index.byId[round.countryId];
-  if (!country) return null;
-  return { roundNumber: round.roundNumber, flagSrc: country.flagSrc, startedAt: round.startedAt, endsAt: round.endsAt };
+  const category = getCategory(round.categoryId);
+  if (!country || !category) return null;
+  return { roundNumber: round.roundNumber, prompt: category.prompt(country), startedAt: round.startedAt, endsAt: round.endsAt };
 }
 
 function createPlayer(id: PlayerId, name: string): PrivatePlayerState {
@@ -62,7 +64,7 @@ function createPlayer(id: PlayerId, name: string): PrivatePlayerState {
 
 export class Room {
   readonly code: RoomCode;
-  readonly mode: GameMode;
+  readonly categoryIds: readonly string[];
   readonly seed: string;
   readonly maxPlayers: number;
   readonly roundLimit: number;
@@ -73,7 +75,7 @@ export class Room {
   private hostPlayerId: PlayerId;
   private status: RoomStatus = "lobby";
   private players = new Map<PlayerId, PrivatePlayerState>();
-  private queue: RoundQueue;
+  private remainingSlots: PromptSlot[];
   private currentRound: PrivateRoundState | null = null;
   private roundAnswers = new Map<PlayerId, RoundResult>();
   private completedRounds = 0;
@@ -83,16 +85,16 @@ export class Room {
 
   constructor(options: RoomOptions) {
     this.code = options.code;
-    this.mode = getGameMode(options.modeId);
+    this.categoryIds = options.categoryIds;
     this.seed = options.seed;
     this.maxPlayers = options.maxPlayers ?? DEFAULT_MAX_PLAYERS_PER_ROOM;
-    this.roundLimit = Math.min(options.roundLimit ?? DEFAULT_MULTIPLAYER_ROUND_LIMIT, this.mode.createCountryPool(options.countryIndex.countries).length);
-    this.roundDurationMs = options.roundDurationMs ?? DEFAULT_ROUND_DURATION_MS;
-    this.resultDisplayMs = options.resultDisplayMs ?? DEFAULT_RESULT_DISPLAY_MS;
     this.countryIndex = options.countryIndex;
     this.hostPlayerId = options.hostPlayerId;
-    const pool = this.mode.createCountryPool(options.countryIndex.countries);
-    this.queue = createRoundQueue(pool, options.seed);
+    const slots = shuffle(buildPromptSlots(options.countryIndex, options.categoryIds, options.seed), createSeededRandom(options.seed));
+    this.roundLimit = Math.min(options.roundLimit ?? DEFAULT_MULTIPLAYER_ROUND_LIMIT, slots.length);
+    this.roundDurationMs = options.roundDurationMs ?? DEFAULT_ROUND_DURATION_MS;
+    this.resultDisplayMs = options.resultDisplayMs ?? DEFAULT_RESULT_DISPLAY_MS;
+    this.remainingSlots = slots;
     this.players.set(options.hostPlayerId, createPlayer(options.hostPlayerId, options.hostName));
     this.touchedAt = options.now;
   }
@@ -132,7 +134,7 @@ export class Room {
     return {
       roomCode: this.code,
       hostPlayerId: this.hostPlayerId,
-      modeId: this.mode.id,
+      categoryIds: this.categoryIds,
       status: this.status,
       players: [...this.players.values()].map(toPublicPlayer),
       round: this.publicRound,
@@ -204,6 +206,27 @@ export class Room {
     return ok([{ type: "GAME_STARTED", round }, this.snapshotMessage()]);
   }
 
+  // Host-driven rematch: returns a finished room to the lobby with the same roster but reset
+  // scores/ready, a fresh round queue, and cleared round state. Reuses the existing lobby →
+  // ready → start flow rather than auto-starting, so players opt back in.
+  restart(playerId: PlayerId, now: number): RoomResult {
+    this.touch(now);
+    if (this.status !== "complete") return fail("game-not-complete", "A rematch can only start after the game ends.");
+    if (playerId !== this.hostPlayerId) return fail("not-host", "Only the room host can start a rematch.");
+
+    for (const [id, player] of this.players) {
+      this.players.set(id, { ...player, ready: false, score: 0, streak: 0, correctAnswers: 0, wrongAnswers: 0 });
+    }
+    this.roundAnswers = new Map();
+    this.completedRounds = 0;
+    this.currentRound = null;
+    this.resultStartedAt = null;
+    this.resultEndsAt = null;
+    this.status = "lobby";
+    this.remainingSlots = shuffle(buildPromptSlots(this.countryIndex, this.categoryIds, `${this.seed}:${now}`), createSeededRandom(`${this.seed}:${now}`));
+    return ok([this.snapshotMessage()]);
+  }
+
   submitAnswer(playerId: PlayerId, answer: string, now: number): RoomResult {
     this.touch(now);
     if (this.status !== "playing" || !this.currentRound) return fail("round-not-open", "No active round is accepting answers.");
@@ -211,12 +234,13 @@ export class Room {
     if (!player || !player.connected) return fail("not-in-room", "Player is not connected to this room.");
 
     const country = this.countryIndex.byId[this.currentRound.countryId];
-    if (!country) return fail("country-not-found", "Current country is unavailable.");
+    const category = getCategory(this.currentRound.categoryId);
+    if (!country || !category) return fail("country-not-found", "Current prompt is unavailable.");
 
-    if (!isAcceptedCountryGuess(country, answer, this.mode)) {
+    if (!category.accepts(country, answer, false)) {
       const updatedPlayer = { ...player, wrongAnswers: player.wrongAnswers + 1, streak: 0 };
       this.players.set(playerId, updatedPlayer);
-      if (!this.roundAnswers.has(playerId)) this.roundAnswers.set(playerId, { playerId, correct: false, points: 0, answeredAt: now });
+      if (!this.roundAnswers.has(playerId)) this.roundAnswers.set(playerId, { playerId, name: player.name, correct: false, points: 0, answeredAt: now });
       // Rejection is private to the guesser: broadcasting it would flash "Not quite" on every
       // screen. No state other than this player's private streak/wrong tally changes, so there
       // is nothing to broadcast either.
@@ -226,7 +250,7 @@ export class Room {
     const points = this.calculatePoints(player, now);
     const updatedPlayer = { ...player, score: player.score + points, streak: player.streak + 1, correctAnswers: player.correctAnswers + 1 };
     this.players.set(playerId, updatedPlayer);
-    this.roundAnswers.set(playerId, { playerId, correct: true, points, answeredAt: now });
+    this.roundAnswers.set(playerId, { playerId, name: player.name, correct: true, points, answeredAt: now });
     // First correct answer takes the round and the points; the round closes immediately.
     return ok([{ type: "ANSWER_ACCEPTED", playerId, points }, ...this.closeRound(now)]);
   }
@@ -249,7 +273,7 @@ export class Room {
 
   finalResults(): readonly FinalResult[] {
     const sorted = [...this.players.values()].sort((left, right) => right.score - left.score || right.correctAnswers - left.correctAnswers || left.name.localeCompare(right.name));
-    return sorted.map((player, index) => ({ playerId: player.id, rank: index + 1, score: player.score, correctAnswers: player.correctAnswers }));
+    return sorted.map((player, index) => ({ playerId: player.id, name: player.name, rank: index + 1, score: player.score, correctAnswers: player.correctAnswers }));
   }
 
   private transferHostIfNeeded(): void {
@@ -264,10 +288,8 @@ export class Room {
   }
 
   private beginNextRound(now: number): PublicRoundState | null {
-    const excluded = new Set<CountryId>();
-    const next = takeNextCountry(this.queue, excluded);
-    this.queue = next.queue;
-    if (next.countryId === null) {
+    const slot = this.remainingSlots.shift();
+    if (!slot) {
       this.currentRound = null;
       return null;
     }
@@ -278,7 +300,8 @@ export class Room {
     this.status = "playing";
     this.currentRound = {
       roundNumber: this.completedRounds + 1,
-      countryId: next.countryId,
+      countryId: slot.countryId,
+      categoryId: slot.categoryId,
       startedAt: now,
       endsAt: this.roundDurationMs > 0 ? now + this.roundDurationMs : null,
     };
@@ -303,14 +326,15 @@ export class Room {
   }
 
   private roundResults(): readonly RoundResult[] {
-    return [...this.players.values()].map((player) => this.roundAnswers.get(player.id) ?? { playerId: player.id, correct: false, points: 0, answeredAt: null });
+    return [...this.players.values()].map((player) => this.roundAnswers.get(player.id) ?? { playerId: player.id, name: player.name, correct: false, points: 0, answeredAt: null });
   }
 
   private roundEndedMessage(): ServerMessage {
     const round = this.currentRound;
     const country = round ? this.countryIndex.byId[round.countryId] : null;
-    if (!country) return { type: "ERROR", code: "country-not-found", message: "Round country is unavailable." };
-    return { type: "ROUND_ENDED", countryCode: country.code, countryName: country.name, results: this.roundResults() };
+    const category = round ? getCategory(round.categoryId) : null;
+    if (!country || !category) return { type: "ERROR", code: "country-not-found", message: "Round prompt is unavailable." };
+    return { type: "ROUND_ENDED", answer: category.reveal(country), results: this.roundResults() };
   }
 
   private completeGame(now: number): RoomResult {

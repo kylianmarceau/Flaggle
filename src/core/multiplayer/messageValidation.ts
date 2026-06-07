@@ -51,14 +51,22 @@ export function parseJsonMessage(raw: string): MessageParseResult<unknown> {
   }
 }
 
+function isCategoryIdList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
+function isPromptContent(value: unknown): boolean {
+  return isRecord(value) && (value.kind === "image" || value.kind === "text") && typeof value.value === "string";
+}
+
 export function parseClientMessage(value: unknown): MessageParseResult<ClientMessage> {
   if (!isRecord(value) || typeof value.type !== "string") return reject("invalid-message", "Message must be an object with a type.");
 
   switch (value.type) {
     case "CREATE_ROOM": {
       if (!isNonEmptyString(value.playerName, MAX_PLAYER_NAME_LENGTH)) return reject("invalid-player-name", "Player name is required.");
-      if (!isNonEmptyString(value.modeId, 32)) return reject("invalid-mode", "Mode is required.");
-      return { ok: true, message: { type: "CREATE_ROOM", playerName: normalizePlayerName(value.playerName), modeId: value.modeId.trim() } };
+      if (!isCategoryIdList(value.categoryIds)) return reject("invalid-category", "At least one category is required.");
+      return { ok: true, message: { type: "CREATE_ROOM", playerName: normalizePlayerName(value.playerName), categoryIds: value.categoryIds.map((id) => id.trim()) } };
     }
     case "JOIN_ROOM": {
       if (!isNonEmptyString(value.roomCode, MAX_ROOM_CODE_LENGTH)) return reject("invalid-room-code", "Room code is required.");
@@ -78,6 +86,8 @@ export function parseClientMessage(value: unknown): MessageParseResult<ClientMes
       return { ok: true, message: { type: "SET_READY", ready: value.ready } };
     case "START_GAME":
       return { ok: true, message: { type: "START_GAME" } };
+    case "PLAY_AGAIN":
+      return { ok: true, message: { type: "PLAY_AGAIN" } };
     case "SUBMIT_ANSWER":
       if (!isNonEmptyString(value.answer, MAX_ANSWER_LENGTH)) return reject("invalid-answer", "Answer is required.");
       if (!isFiniteNumber(value.clientSentAt)) return reject("invalid-client-time", "Client sent timestamp is required.");
@@ -106,9 +116,9 @@ function isPlayer(value: unknown): value is PublicPlayerState {
 function isRound(value: unknown): value is PublicRoundState {
   return (
     isRecord(value) &&
-    hasOnlyKeys(value, ["roundNumber", "flagSrc", "startedAt", "endsAt"]) &&
+    hasOnlyKeys(value, ["roundNumber", "prompt", "startedAt", "endsAt"]) &&
     isFiniteNumber(value.roundNumber) &&
-    typeof value.flagSrc === "string" &&
+    isPromptContent(value.prompt) &&
     isFiniteNumber(value.startedAt) &&
     (value.endsAt === null || isFiniteNumber(value.endsAt))
   );
@@ -119,7 +129,7 @@ function isRoom(value: unknown): value is PublicRoomState {
     isRecord(value) &&
     typeof value.roomCode === "string" &&
     typeof value.hostPlayerId === "string" &&
-    typeof value.modeId === "string" &&
+    isCategoryIdList(value.categoryIds) &&
     (value.status === "lobby" || value.status === "playing" || value.status === "round-result" || value.status === "complete") &&
     Array.isArray(value.players) &&
     value.players.every(isPlayer) &&
@@ -130,11 +140,11 @@ function isRoom(value: unknown): value is PublicRoomState {
 }
 
 function isRoundResult(value: unknown): value is RoundResult {
-  return isRecord(value) && typeof value.playerId === "string" && typeof value.correct === "boolean" && isFiniteNumber(value.points) && (value.answeredAt === null || isFiniteNumber(value.answeredAt));
+  return isRecord(value) && typeof value.playerId === "string" && typeof value.name === "string" && typeof value.correct === "boolean" && isFiniteNumber(value.points) && (value.answeredAt === null || isFiniteNumber(value.answeredAt));
 }
 
 function isFinalResult(value: unknown): value is FinalResult {
-  return isRecord(value) && typeof value.playerId === "string" && isFiniteNumber(value.rank) && isFiniteNumber(value.score) && isFiniteNumber(value.correctAnswers);
+  return isRecord(value) && typeof value.playerId === "string" && typeof value.name === "string" && isFiniteNumber(value.rank) && isFiniteNumber(value.score) && isFiniteNumber(value.correctAnswers);
 }
 
 export function parseServerMessage(value: unknown): MessageParseResult<ServerMessage> {
@@ -164,10 +174,10 @@ export function parseServerMessage(value: unknown): MessageParseResult<ServerMes
       if (typeof value.reason !== "string") return reject("invalid-answer", "Rejected answer is invalid.");
       return { ok: true, message: { type: "ANSWER_REJECTED", reason: value.reason } };
     case "ROUND_ENDED":
-      if (typeof value.countryCode !== "string" || typeof value.countryName !== "string" || !Array.isArray(value.results) || !value.results.every(isRoundResult)) {
+      if (typeof value.answer !== "string" || !Array.isArray(value.results) || !value.results.every(isRoundResult)) {
         return reject("invalid-round-result", "Round result is invalid.");
       }
-      return { ok: true, message: { type: "ROUND_ENDED", countryCode: value.countryCode, countryName: value.countryName, results: value.results } };
+      return { ok: true, message: { type: "ROUND_ENDED", answer: value.answer, results: value.results } };
     case "GAME_COMPLETED":
       if (!Array.isArray(value.results) || !value.results.every(isFinalResult)) return reject("invalid-final-result", "Final result is invalid.");
       return { ok: true, message: { type: "GAME_COMPLETED", results: value.results } };

@@ -35,6 +35,49 @@
   line-height: 1.35;
   text-align: right;
 }
+.category-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.category-row-label {
+  color: var(--muted);
+  font-weight: 720;
+  font-size: 0.82rem;
+  margin-right: 2px;
+}
+
+.category-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.category-option input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+/* Text prompt (e.g. ISO codes) shown in the same slot a flag image would occupy. */
+.prompt-text {
+  font-size: clamp(3rem, 12vw, 7rem);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  text-align: center;
+  line-height: 1;
+}
 
 .stats-panel {
   display: grid;

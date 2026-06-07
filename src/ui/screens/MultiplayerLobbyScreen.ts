@@ -1,12 +1,12 @@
 import type { MultiplayerTransport, PublicRoomState, PublicRoundState, RoundResult, FinalResult, ServerMessage, TransportStatus } from "../../core/multiplayer";
 import { createMockMultiplayerTransport } from "../../core/multiplayer";
-import type { GameMode } from "../../core/modes";
+import { allCategories } from "../../core/categories";
 import type { Screen } from "../../app/router";
 import { el } from "../dom/createElement";
 import { createMultiplayerGameView } from "./MultiplayerGameScreen";
+import { createEndGameModal } from "./MultiplayerEndGameModal";
 
 export interface MultiplayerLobbyScreenOptions {
-  readonly modes: readonly GameMode[];
   readonly createOnlineTransport: () => MultiplayerTransport;
   readonly onBackToSolo: () => void;
 }
@@ -50,8 +50,7 @@ function clearStoredSession(): void {
 }
 
 interface RoundReveal {
-  readonly countryCode: string;
-  readonly countryName: string;
+  readonly answer: string;
   readonly results: readonly RoundResult[];
 }
 
@@ -109,10 +108,16 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
 
   const nameInput = el("input", { attrs: { type: "text", autocomplete: "nickname", maxlength: "32", placeholder: "Player name", value: "Player" } });
   const joinCodeInput = el("input", { attrs: { type: "text", autocomplete: "off", maxlength: "12", placeholder: "Room code" } });
-  const modeSelect = el("select", {
-    attrs: { "aria-label": "Multiplayer mode" },
-    children: options.modes.map((mode) => el("option", { text: mode.label, attrs: { value: mode.id } })),
+  const categoryChecks = allCategories.map((category) => {
+    const checkbox = el("input", { attrs: { type: "checkbox", value: category.id } });
+    checkbox.checked = category.id === "flags";
+    return { id: category.id, checkbox, label: el("label", { className: "category-option", attrs: { title: category.description }, children: [checkbox, el("span", { text: category.label })] }) };
   });
+  function selectedCategoryIds(): string[] {
+    const ids = categoryChecks.filter((option) => option.checkbox.checked).map((option) => option.id);
+    return ids.length > 0 ? ids : ["flags"];
+  }
+  const categoryGroup = el("div", { className: "category-row", children: [el("span", { className: "category-row-label", text: "Categories" }), ...categoryChecks.map((option) => option.label)] });
   const statusText = el("p", { className: "multiplayer-status", text: feedback });
   const roomCode = el("strong", { className: "room-code", text: "----" });
   const playerList = el("ul", { className: "player-list" });
@@ -131,7 +136,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
       el("p", { className: "eyebrow", text: "MULTIPLAYER" }),
       el("h1", { text: "Host or join a flag room" }),
       el("p", { className: "muted", text: "The server owns rooms, answers, scoring, round timing, and final results. Clients only submit input and render public state." }),
-      el("div", { className: "multiplayer-form-grid", children: [nameInput, modeSelect, joinCodeInput] }),
+      el("div", { className: "multiplayer-form-grid", children: [nameInput, categoryGroup, joinCodeInput] }),
       el("div", { className: "actions", children: [createButton, joinButton, demoButton] }),
     ],
   });
@@ -173,12 +178,35 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
     joinedRoomCode = null;
   }
 
+  function leaveRoomFlow(): void {
+    transport?.send({ type: "LEAVE_ROOM" });
+    disconnectCurrentTransport();
+    clearStoredSession();
+    resetMultiplayerState();
+    allowSessionPersistence = false;
+    status = "idle";
+    feedback = "Left the room.";
+    render();
+  }
+
+  const endGameModal = createEndGameModal({
+    onPlayAgain: () => transport?.send({ type: "PLAY_AGAIN" }),
+    onLeave: leaveRoomFlow,
+  });
+
   function render(): void {
     statusText.textContent = `${status}: ${feedback}`;
     const hasRoom = room !== null;
     setupPanel.hidden = hasRoom;
     lobbyPanel.hidden = !hasRoom || room?.status !== "lobby";
     gameView.element.hidden = !hasRoom || room?.status === "lobby";
+
+    // Toggle the modal before the no-room early return so leaving the room also dismisses it.
+    if (room && room.status === "complete" && finalResults) {
+      endGameModal.show({ localPlayerId, results: finalResults, canPlayAgain: localPlayerId === room.hostPlayerId });
+    } else {
+      endGameModal.hide();
+    }
 
     if (!room) return;
 
@@ -206,6 +234,9 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
         room = message.room;
         activeRound = message.room.round;
         if (message.room.status === "playing") roundReveal = null;
+        // A host rematch returns the room to the lobby; drop the stale final standings so the
+        // game-over modal does not flash back up before the next game starts.
+        if (message.room.status === "lobby") finalResults = null;
         break;
       case "GAME_STARTED":
       case "ROUND_STARTED":
@@ -221,9 +252,9 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
         feedback = message.reason;
         break;
       case "ROUND_ENDED": {
-        roundReveal = { countryCode: message.countryCode, countryName: message.countryName, results: message.results };
+        roundReveal = { answer: message.answer, results: message.results };
         const winner = message.results.find((result) => result.correct);
-        feedback = winner ? `${message.countryName} — ${playerName(winner.playerId)} took it.` : `${message.countryName} — nobody got it.`;
+        feedback = winner ? `${message.answer} — ${winner.name} took it.` : `${message.answer} — nobody got it.`;
         break;
       }
       case "GAME_COMPLETED":
@@ -276,7 +307,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
     () => {
       allowSessionPersistence = true;
       const playerName = nameInput.value.trim() || "Player";
-      connectWith(options.createOnlineTransport(), () => transport?.send({ type: "CREATE_ROOM", playerName, modeId: modeSelect.value }));
+      connectWith(options.createOnlineTransport(), () => transport?.send({ type: "CREATE_ROOM", playerName, categoryIds: selectedCategoryIds() }));
     },
     { signal: controller.signal },
   );
@@ -303,7 +334,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
       allowSessionPersistence = false;
       clearStoredSession();
       const playerName = nameInput.value.trim() || "Player";
-      connectWith(createMockMultiplayerTransport(), () => transport?.send({ type: "CREATE_ROOM", playerName, modeId: modeSelect.value }));
+      connectWith(createMockMultiplayerTransport(), () => transport?.send({ type: "CREATE_ROOM", playerName, categoryIds: selectedCategoryIds() }));
     },
     { signal: controller.signal },
   );
@@ -343,20 +374,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
   );
 
   startButton.addEventListener("click", () => transport?.send({ type: "START_GAME" }), { signal: controller.signal });
-  leaveButton.addEventListener(
-    "click",
-    () => {
-      transport?.send({ type: "LEAVE_ROOM" });
-      disconnectCurrentTransport();
-      clearStoredSession();
-      resetMultiplayerState();
-      allowSessionPersistence = false;
-      status = "idle";
-      feedback = "Left the room.";
-      render();
-    },
-    { signal: controller.signal },
-  );
+  leaveButton.addEventListener("click", () => leaveRoomFlow(), { signal: controller.signal });
   backButton.addEventListener(
     "click",
     () => {
@@ -373,6 +391,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
       el("header", { className: "game-header", children: [createBrand(), el("div", { className: "actions", children: [backButton] })] }),
       statusText,
       el("div", { className: "multiplayer-layout", children: [setupPanel, lobbyPanel, gameView.element] }),
+      endGameModal.element,
     ],
   });
 

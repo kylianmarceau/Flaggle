@@ -1,5 +1,4 @@
 import type { CountryId, CountryIndex } from "../countries";
-import type { GameMode, ModeOptions } from "../modes/types";
 
 export interface Hint {
   readonly title: string;
@@ -19,9 +18,10 @@ export interface RoundQueue {
 
 export interface GameState {
   readonly status: "idle" | "playing" | "complete";
-  readonly modeId: string;
+  readonly categoryIds: readonly string[];
   readonly seed: string;
   readonly currentCountryId: CountryId | null;
+  readonly currentCategoryId: string | null;
   readonly roundNumber: number;
   readonly guessedCountryIds: ReadonlySet<CountryId>;
   readonly skippedCountryIds: ReadonlySet<CountryId>;
@@ -32,8 +32,6 @@ export interface GameState {
   readonly bestStreak: number;
   readonly score: number;
   readonly hintLevel: number;
-  readonly timeLimitSeconds: number | null;
-  readonly timeRemainingMs: number | null;
   readonly startedAt: number | null;
   readonly endedAt: number | null;
   readonly lastResult: GuessResult | null;
@@ -43,9 +41,8 @@ export interface GameState {
 
 export interface CreateGameEngineInput {
   readonly countryIndex: CountryIndex;
-  readonly mode: GameMode;
+  readonly categoryIds: readonly string[];
   readonly seed: string;
-  readonly modeOptions?: ModeOptions;
   readonly now?: number;
   readonly initialState?: GameState;
 }
@@ -56,7 +53,7 @@ export interface GameEngine {
 }
 
 export type GameCommand =
-  | { readonly type: "START_GAME"; readonly seed: string; readonly modeId: string; readonly now: number }
+  | { readonly type: "START_GAME"; readonly seed: string; readonly categoryIds: readonly string[]; readonly now: number }
   | { readonly type: "SUBMIT_GUESS"; readonly value: string; readonly now: number; readonly auto?: boolean }
   | { readonly type: "REQUEST_HINT"; readonly now: number }
   | { readonly type: "SKIP_ROUND"; readonly now: number }
@@ -70,7 +67,6 @@ export type GameEvent =
   | { readonly type: "ROUND_SKIPPED"; readonly previousCountryId: CountryId; readonly nextCountryId: CountryId | null }
   | { readonly type: "HINT_REVEALED"; readonly countryId: CountryId; readonly hint: Hint }
   | { readonly type: "GAME_COMPLETED" }
-  | { readonly type: "TIMER_EXPIRED" }
   | { readonly type: "GAME_RESET" };
 
 export interface GameStats {

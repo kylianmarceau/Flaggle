@@ -1,19 +1,18 @@
-import { CONTINENTS, type Continent, type Country, type CountryIndex } from "../../core/countries";
+import { type Country, type CountryIndex } from "../../core/countries";
+import { allCategories, getCategory } from "../../core/categories";
 import { getCurrentCountry, type GameEngine, type GameEvent, type GameState } from "../../core/game";
-import type { GameMode, GameModeId } from "../../core/modes";
 import type { Screen } from "../../app/router";
 import { el } from "../dom/createElement";
 import { createAtlasView, setAtlasOpen, updateAtlasView, type AtlasView } from "../dom/renderAtlas";
 import { createFeedbackView, showFeedback, type FeedbackView } from "../dom/renderFeedback";
-import { createFlagView, updateFlagView, type FlagView } from "../dom/renderFlag";
+import { createPromptView, updatePromptView, type PromptView } from "../dom/renderPrompt";
 import { createStatsView, updateStatsView, type StatsView } from "../dom/renderStats";
 
 export interface SoloGameScreenOptions {
   readonly countryIndex: CountryIndex;
   readonly engine: GameEngine;
-  readonly mode: GameMode;
-  readonly modes: readonly GameMode[];
-  readonly onModeChange: (modeId: GameModeId, continent?: Continent) => void;
+  readonly categoryIds: readonly string[];
+  readonly onCategoryChange: (categoryIds: readonly string[]) => void;
   readonly onStateChange: (state: GameState) => void;
   readonly onReset: () => void;
   readonly onMultiplayer: () => void;
@@ -21,7 +20,7 @@ export interface SoloGameScreenOptions {
 
 interface SoloViews {
   readonly stats: StatsView;
-  readonly flag: FlagView;
+  readonly prompt: PromptView;
   readonly feedback: FeedbackView;
   readonly atlas: AtlasView;
 }
@@ -32,7 +31,6 @@ function visibleCountries(index: CountryIndex, state: GameState): readonly Count
 }
 
 function applyEvents(events: readonly GameEvent[], views: SoloViews, index: CountryIndex): void {
-  const timerExpired = events.some((event) => event.type === "TIMER_EXPIRED");
   for (const event of events) {
     if (event.type === "GUESS_CORRECT") {
       const country = index.byId[event.countryId];
@@ -41,12 +39,12 @@ function applyEvents(events: readonly GameEvent[], views: SoloViews, index: Coun
     }
 
     if (event.type === "GUESS_WRONG") {
-      showFeedback(views.feedback, "Not quite. Streak reset, flag still live.", "bad");
+      showFeedback(views.feedback, "Not quite. Streak reset, prompt still live.", "bad");
       continue;
     }
 
     if (event.type === "ROUND_SKIPPED") {
-      showFeedback(views.feedback, "Skipped. Streak reset — this flag can return later.", "neutral");
+      showFeedback(views.feedback, "Skipped. Streak reset — this prompt can return later.", "neutral");
       continue;
     }
 
@@ -56,12 +54,7 @@ function applyEvents(events: readonly GameEvent[], views: SoloViews, index: Coun
     }
 
     if (event.type === "GAME_COMPLETED") {
-      if (!timerExpired) showFeedback(views.feedback, "Complete. Every flag in this mode has been solved.", "good");
-      continue;
-    }
-
-    if (event.type === "TIMER_EXPIRED") {
-      showFeedback(views.feedback, "Time. Final score locked.", "neutral");
+      showFeedback(views.feedback, "Complete. Every prompt in this mix has been solved.", "good");
       continue;
     }
   }
@@ -69,58 +62,53 @@ function applyEvents(events: readonly GameEvent[], views: SoloViews, index: Coun
 
 export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   const controller = new AbortController();
-  const { countryIndex, engine, mode } = options;
+  const { countryIndex, engine } = options;
   const initialState = engine.getState();
   const countries = visibleCountries(countryIndex, initialState);
   const stats = createStatsView();
-  const flag = createFlagView();
+  const prompt = createPromptView();
   const feedback = createFeedbackView();
   const atlas = createAtlasView(countries);
-  const views: SoloViews = { stats, flag, feedback, atlas };
+  const views: SoloViews = { stats, prompt, feedback, atlas };
   const input = el("input", {
     attrs: { id: "guess-input", name: "guess", type: "text", autocomplete: "off", autocapitalize: "words", spellcheck: "false", placeholder: "e.g. Brazil, Japan, ZA..." },
   });
   const submitButton = el("button", { className: "primary-action", text: "Lock in", attrs: { type: "submit" } });
-  const startButton = el("button", { className: "primary-action start-action", text: "Start timed rush", attrs: { type: "button" } });
   const hintButton = el("button", { className: "secondary-action", text: "Hint", attrs: { type: "button" } });
   const skipButton = el("button", { className: "secondary-action", text: "Skip", attrs: { type: "button" } });
   const resetButton = el("button", { className: "ghost-action", text: "Restart", attrs: { type: "button" } });
   const multiplayerButton = el("button", { className: "ghost-action", text: "Multiplayer", attrs: { type: "button" } });
-  const modeSelect = el("select", {
-    className: "mode-select",
-    attrs: { "aria-label": "Game mode" },
-    children: options.modes.map((gameMode) => el("option", { text: gameMode.label, attrs: { value: gameMode.id } })),
+
+  const categoryOptions = allCategories.map((category) => {
+    const checkbox = el("input", { attrs: { type: "checkbox", value: category.id } });
+    checkbox.checked = options.categoryIds.includes(category.id);
+    const label = el("label", {
+      className: "category-option",
+      attrs: { title: category.description },
+      children: [checkbox, el("span", { text: category.label })],
+    });
+    return { id: category.id, checkbox, label };
   });
-  modeSelect.value = mode.id;
 
-  const continentSelect = el("select", {
-    className: "mode-select",
-    attrs: { "aria-label": "Continent" },
-    children: CONTINENTS.map((continent) => el("option", { text: continent, attrs: { value: continent } })),
-  });
-  const firstPoolCountryId = initialState.poolCountryIds[0];
-  continentSelect.value = mode.id === "continent" && firstPoolCountryId !== undefined ? countryIndex.byId[firstPoolCountryId]?.continent ?? "Africa" : "Africa";
-  continentSelect.hidden = mode.id !== "continent";
-  const modeDescription = el("p", { className: "mode-description", text: mode.description });
+  function selectedCategoryIds(): string[] {
+    return categoryOptions.filter((option) => option.checkbox.checked).map((option) => option.id);
+  }
 
-
-  modeSelect.addEventListener(
-    "change",
-    () => {
-      const nextModeId = modeSelect.value as GameModeId;
-      options.onModeChange(nextModeId, nextModeId === "continent" ? (continentSelect.value as Continent) : undefined);
-    },
-    { signal: controller.signal },
-  );
-
-  continentSelect.addEventListener(
-    "change",
-    () => options.onModeChange("continent", continentSelect.value as Continent),
-    { signal: controller.signal },
-  );
-
-  hintButton.toggleAttribute("disabled", !mode.hints.enabled);
-  skipButton.toggleAttribute("disabled", !mode.allowSkip);
+  for (const option of categoryOptions) {
+    option.checkbox.addEventListener(
+      "change",
+      () => {
+        const selected = selectedCategoryIds();
+        // Always keep at least one category active; revert the box that emptied the set.
+        if (selected.length === 0) {
+          option.checkbox.checked = true;
+          return;
+        }
+        options.onCategoryChange(selected);
+      },
+      { signal: controller.signal },
+    );
+  }
 
   const form = el("form", {
     className: "guess-form",
@@ -130,14 +118,16 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   function render(persist = true): void {
     const state = engine.getState();
     const current = getCurrentCountry(countryIndex, state);
+    const category = state.currentCategoryId ? getCategory(state.currentCategoryId) : undefined;
+    const content = current && category ? category.prompt(current) : null;
     updateStatsView(stats, countryIndex, state);
-    updateFlagView(flag, current, state.roundNumber, state.status);
+    updatePromptView(prompt, content, state.roundNumber, category?.label ?? "Prompt");
     updateAtlasView(atlas, countries, state.guessedCountryIds);
-    startButton.hidden = state.status !== "idle";
-    input.disabled = state.status !== "playing";
-    submitButton.disabled = state.status !== "playing";
-    hintButton.disabled = state.status !== "playing" || !mode.hints.enabled;
-    skipButton.disabled = state.status !== "playing" || !mode.allowSkip;
+    const playing = state.status === "playing";
+    input.disabled = !playing;
+    submitButton.disabled = !playing;
+    hintButton.disabled = !playing;
+    skipButton.disabled = !playing;
     if (persist) options.onStateChange(state);
   }
 
@@ -147,15 +137,6 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     if (events.some((event) => event.type === "GUESS_CORRECT")) input.value = "";
     if (engine.getState().status === "playing") input.focus();
   }
-
-  const timerId =
-    mode.durationSeconds === undefined
-      ? null
-      : window.setInterval(() => {
-          const events = engine.dispatch({ type: "TICK", now: Date.now() });
-          if (events.length > 0) dispatchAndRender(events);
-          else if (engine.getState().status === "playing") render(false);
-        }, 250);
 
   form.addEventListener(
     "submit",
@@ -176,14 +157,6 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     { signal: controller.signal },
   );
 
-  startButton.addEventListener(
-    "click",
-    () => {
-      dispatchAndRender(engine.dispatch({ type: "START_GAME", modeId: mode.id, seed: engine.getState().seed, now: Date.now() }));
-      showFeedback(feedback, "Timed Rush started. Two minutes.", "neutral");
-    },
-    { signal: controller.signal },
-  );
   hintButton.addEventListener("click", () => dispatchAndRender(engine.dispatch({ type: "REQUEST_HINT", now: Date.now() })), { signal: controller.signal });
   skipButton.addEventListener("click", () => dispatchAndRender(engine.dispatch({ type: "SKIP_ROUND", now: Date.now() })), { signal: controller.signal });
   resetButton.addEventListener(
@@ -218,10 +191,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   updateAtlasView(atlas, countries, initialState.guessedCountryIds);
   const logo = el("div", {
     className: "brand-lockup compact",
-    children: [
-      el("img", { className: "brand-logo", attrs: { src: "logo.svg", alt: "" } }),
-      el("span", { className: "brand-name", text: "locato" }),
-    ],
+    children: [el("img", { className: "brand-logo", attrs: { src: "logo.svg", alt: "" } }), el("span", { className: "brand-name", text: "locato" })],
   });
 
   atlas.openButton.addEventListener("click", () => setAtlasOpen(atlas, true), { signal: controller.signal });
@@ -235,18 +205,23 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
         className: "game-header",
         children: [
           logo,
-          el("div", { className: "mode-controls", children: [el("div", { className: "mode-select-row", children: [modeSelect, continentSelect, multiplayerButton] }), modeDescription] }),
+          el("div", {
+            className: "mode-controls",
+            children: [
+              el("div", { className: "category-row", children: [el("span", { className: "category-row-label", text: "Categories" }), ...categoryOptions.map((option) => option.label)] }),
+              el("div", { className: "mode-select-row", children: [multiplayerButton] }),
+            ],
+          }),
         ],
       }),
       el("div", {
         className: "play-layout",
         children: [
-          flag.element,
+          prompt.element,
           el("aside", {
             className: "answer-panel",
             children: [
               el("div", { className: "panel-title", children: [el("h2", { text: "Name the place" })] }),
-              startButton,
               form,
               stats.element,
               feedback.element,
@@ -259,12 +234,11 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   });
 
   render();
-  showFeedback(feedback, initialState.lastResult?.message ?? (initialState.status === "idle" ? "Timed Rush is ready. Press start to reveal the first flag." : "First flag is ready. Type the country when you know it."), "neutral");
+  showFeedback(feedback, initialState.lastResult?.message ?? "First prompt is ready. Type the country when you know it.", "neutral");
 
   return {
     element,
     destroy: () => {
-      if (timerId !== null) window.clearInterval(timerId);
       controller.abort();
     },
   };

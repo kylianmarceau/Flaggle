@@ -2,7 +2,7 @@ import { rawCountries, indexCountries, type CountryIndex } from "../../src/core/
 import { MAX_ANSWER_LENGTH, parseClientMessage, type ClientMessage, type MessageParseResult, type RoomCode, type ServerMessage } from "../../src/core/multiplayer";
 import { parseRawClientMessage } from "../protocol/parseMessage";
 import { DEFAULT_MAX_PLAYERS_PER_ROOM, DEFAULT_RESULT_DISPLAY_MS, Room, type RoomResult } from "./Room";
-import { selectableModes } from "../../src/core/modes";
+import { getCategory, resolveCategoryIds } from "../../src/core/categories";
 
 export interface MultiplayerConnection {
   readonly send: (message: string) => unknown;
@@ -65,8 +65,8 @@ function defaultCountryIndex(): CountryIndex {
   return indexCountries(rawCountries);
 }
 
-function isSupportedMode(modeId: string): boolean {
-  return selectableModes.some((mode) => mode.id === modeId);
+function hasSupportedCategory(categoryIds: readonly string[]): boolean {
+  return categoryIds.some((id) => getCategory(id) !== undefined);
 }
 
 export class RoomManager {
@@ -149,7 +149,7 @@ export class RoomManager {
   private handleClientMessage(connection: MultiplayerConnection, message: ClientMessage, now: number): void {
     switch (message.type) {
       case "CREATE_ROOM":
-        this.createRoom(connection, message.playerName, message.modeId, now);
+        this.createRoom(connection, message.playerName, message.categoryIds, now);
         return;
       case "JOIN_ROOM":
         this.joinRoom(connection, message.roomCode, message.playerName, now);
@@ -165,6 +165,9 @@ export class RoomManager {
         return;
       case "START_GAME":
         this.withSessionRoom(connection, (room, session) => this.sendRoomResult(connection, room, room.startGame(session.playerId, now)));
+        return;
+      case "PLAY_AGAIN":
+        this.withSessionRoom(connection, (room, session) => this.sendRoomResult(connection, room, room.restart(session.playerId, now)));
         return;
       case "SUBMIT_ANSWER":
         if (message.answer.length > MAX_ANSWER_LENGTH) {
@@ -186,14 +189,14 @@ export class RoomManager {
     }
   }
 
-  private createRoom(connection: MultiplayerConnection, playerName: string, modeId: string, now: number): void {
+  private createRoom(connection: MultiplayerConnection, playerName: string, categoryIds: readonly string[], now: number): void {
     if (this.rooms.size >= this.maxRooms) {
       sendError(connection, "too-many-rooms", "The server is at room capacity.");
       return;
     }
 
-    if (!isSupportedMode(modeId)) {
-      sendError(connection, "invalid-mode", "Unsupported multiplayer mode.");
+    if (!hasSupportedCategory(categoryIds)) {
+      sendError(connection, "invalid-category", "Unsupported category selection.");
       return;
     }
 
@@ -205,7 +208,7 @@ export class RoomManager {
       hostPlayerId: playerId,
       hostName: playerName,
       countryIndex: this.countryIndex,
-      modeId,
+      categoryIds: resolveCategoryIds(categoryIds),
       seed: createId("seed"),
       now,
       maxPlayers: this.maxPlayersPerRoom,

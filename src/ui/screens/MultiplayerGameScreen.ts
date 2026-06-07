@@ -5,7 +5,7 @@ export interface MultiplayerGameViewState {
   readonly room: PublicRoomState;
   readonly localPlayerId: PlayerId | null;
   readonly round: PublicRoundState | null;
-  readonly roundResult: { readonly countryCode: string; readonly countryName: string; readonly results: readonly RoundResult[] } | null;
+  readonly roundResult: { readonly answer: string; readonly results: readonly RoundResult[] } | null;
   readonly finalResults: readonly FinalResult[] | null;
   readonly feedback: string;
   readonly canSubmit: boolean;
@@ -41,23 +41,20 @@ function createScoreRows(room: PublicRoomState, localPlayerId: PlayerId | null):
   );
 }
 
-function createResultRows(room: PublicRoomState, results: readonly RoundResult[]): readonly HTMLElement[] {
-  const playerById = new Map(room.players.map((player) => [player.id, player]));
-  return results.map((result) => {
-    const player = playerById.get(result.playerId);
-    return el("li", {
+function createResultRows(results: readonly RoundResult[]): readonly HTMLElement[] {
+  return results.map((result) =>
+    el("li", {
       className: result.correct ? "result-row good" : "result-row",
-      text: `${player?.name ?? result.playerId}: ${result.correct ? `+${result.points}` : "no correct answer"}`,
-    });
-  });
+      text: `${result.name}: ${result.correct ? `+${result.points}` : "no correct answer"}`,
+    }),
+  );
 }
 
-function createFinalRows(room: PublicRoomState, results: readonly FinalResult[]): readonly HTMLElement[] {
-  const playerById = new Map(room.players.map((player) => [player.id, player]));
+function createFinalRows(results: readonly FinalResult[]): readonly HTMLElement[] {
   return results.map((result) =>
     el("li", {
       className: "result-row final",
-      text: `#${result.rank} ${playerById.get(result.playerId)?.name ?? result.playerId} · ${formatScore(result.score)} · ${result.correctAnswers} correct`,
+      text: `#${result.rank} ${result.name} · ${formatScore(result.score)} · ${result.correctAnswers} correct`,
     }),
   );
 }
@@ -155,7 +152,7 @@ export function createMultiplayerGameView(onSubmit: (answer: string) => void): M
     submitButton,
     update: (state) => {
       const visibleRound = state.round ?? state.room.round;
-      const roundKey = visibleRound ? `${state.room.roomCode}:${visibleRound.roundNumber}:${visibleRound.startedAt}:${visibleRound.flagSrc}` : null;
+      const roundKey = visibleRound ? `${state.room.roomCode}:${visibleRound.roundNumber}:${visibleRound.startedAt}:${visibleRound.prompt.kind}:${visibleRound.prompt.value}` : null;
       const isNewRound = roundKey !== null && roundKey !== renderedRoundKey;
       if (isNewRound) answerInput.value = "";
       renderedRoundKey = roundKey;
@@ -182,9 +179,13 @@ export function createMultiplayerGameView(onSubmit: (answer: string) => void): M
       }
 
       if (visibleRound) {
-        flagSlot.replaceChildren(el("img", { className: "flag-image", attrs: { src: visibleRound.flagSrc, alt: "Flag to guess" } }));
+        flagSlot.replaceChildren(
+          visibleRound.prompt.kind === "image"
+            ? el("img", { className: "flag-image", attrs: { src: visibleRound.prompt.value, alt: "Prompt to guess" } })
+            : el("div", { className: "prompt-text", text: visibleRound.prompt.value }),
+        );
       } else {
-        flagSlot.replaceChildren(el("div", { className: "complete-card", text: "The server will reveal the next flag when the room starts." }));
+        flagSlot.replaceChildren(el("div", { className: "complete-card", text: "The server will reveal the next prompt when the room starts." }));
       }
 
       phaseStartedAt = state.room.phaseStartedAt;
@@ -197,11 +198,11 @@ export function createMultiplayerGameView(onSubmit: (answer: string) => void): M
         stopTimerLoop();
       }
 
-      if (state.finalResults) resultList.replaceChildren(...createFinalRows(state.room, state.finalResults));
+      if (state.finalResults) resultList.replaceChildren(...createFinalRows(state.finalResults));
       else if (state.roundResult) {
         resultList.replaceChildren(
-          el("li", { className: "result-row reveal", text: `${state.roundResult.countryName} (${state.roundResult.countryCode})` }),
-          ...createResultRows(state.room, state.roundResult.results),
+          el("li", { className: "result-row reveal", text: state.roundResult.answer }),
+          ...createResultRows(state.roundResult.results),
         );
       } else resultList.replaceChildren(el("li", { className: "result-row", text: "No result yet." }));
 

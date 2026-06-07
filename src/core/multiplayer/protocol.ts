@@ -1,12 +1,13 @@
 import type { FinalResult, PublicPlayerState, PublicRoomState, PublicRoundState, RoundResult } from "./roomTypes";
 
 export type ClientMessage =
-  | { readonly type: "CREATE_ROOM"; readonly playerName: string; readonly modeId: string }
+  | { readonly type: "CREATE_ROOM"; readonly playerName: string; readonly categoryIds: readonly string[] }
   | { readonly type: "JOIN_ROOM"; readonly roomCode: string; readonly playerName: string }
   | { readonly type: "REJOIN_ROOM"; readonly roomCode: string; readonly playerId: string; readonly sessionToken: string }
   | { readonly type: "LEAVE_ROOM" }
   | { readonly type: "SET_READY"; readonly ready: boolean }
   | { readonly type: "START_GAME" }
+  | { readonly type: "PLAY_AGAIN" }
   | { readonly type: "SUBMIT_ANSWER"; readonly answer: string; readonly clientSentAt: number }
   | { readonly type: "REQUEST_HINT" };
 
@@ -19,7 +20,7 @@ export type ServerMessage =
   | { readonly type: "ROUND_STARTED"; readonly round: PublicRoundState }
   | { readonly type: "ANSWER_ACCEPTED"; readonly playerId: string; readonly points: number }
   | { readonly type: "ANSWER_REJECTED"; readonly reason: string }
-  | { readonly type: "ROUND_ENDED"; readonly countryCode: string; readonly countryName: string; readonly results: readonly RoundResult[] }
+  | { readonly type: "ROUND_ENDED"; readonly answer: string; readonly results: readonly RoundResult[] }
   | { readonly type: "GAME_COMPLETED"; readonly results: readonly FinalResult[] }
   | { readonly type: "ERROR"; readonly code: string; readonly message: string };
 
