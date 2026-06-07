@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Flaggle</title>
-  <link rel="stylesheet" href="styles.css?v=2026-06-06-map-tools">
+  <link rel="stylesheet" href="styles.css?v=2026-06-07-map-timer">
 </head>
 <body>
   <main class="app">
@@ -14,11 +14,16 @@
           <div class="logo-mark" aria-hidden="true">🌍</div>
           <p class="eyebrow">GeoQuest Arcade</p>
         </div>
-        <h1><span class="title-gradient" id="modeTitle">Flag Rush</span><br>World Challenge</h1>
-        <p class="subcopy" id="modeCopy">A faster, punchier take on the country flag guessing game. Decode the flag, build your streak, and fill the continent board.</p>
-        <div class="mode-switcher" role="tablist" aria-label="Game modes">
-          <button class="mode-tab is-active" type="button" role="tab" aria-selected="true" data-mode="flag">Flag Rush</button>
-          <button class="mode-tab" type="button" role="tab" aria-selected="false" data-mode="map">Country Guesser</button>
+        <h1><span class="title-gradient" id="modeTitle">Flag Rush</span></h1>
+        <p class="subcopy" id="modeCopy">Guess the flag.</p>
+        <div class="mode-controls">
+          <div class="mode-switcher" role="tablist" aria-label="Game modes">
+            <button class="mode-tab is-active" type="button" role="tab" aria-selected="true" data-mode="flag">Flags</button>
+            <button class="mode-tab" type="button" role="tab" aria-selected="false" data-mode="map">Map</button>
+          </div>
+          <button class="timer-chip secondary" type="button" id="timerToggleButton" aria-pressed="false">
+            Timer <strong id="timerValue">Off</strong>
+          </button>
         </div>
       </div>
       <div class="stat-rail" aria-label="Game statistics">
@@ -48,16 +53,12 @@
           <span class="stage-number">196 flags loaded</span>
         </div>
         <div class="flag-wrap" id="flagWrap" aria-live="polite"></div>
-        <div class="stage-footer">
-          <span class="stage-tip">Tip: country code guesses also work when you press Guess.</span>
-          <span class="stage-tip">Auto-submit triggers on exact country names.</span>
-        </div>
       </div>
 
       <aside class="answer-panel">
         <div class="panel-title">
           <h2>What country is this?</h2>
-          <p>Type the name as soon as you know it. The board below reveals each correct country in its continent group.</p>
+          <p>Type the country.</p>
         </div>
 
         <div class="progress-card" aria-label="Game progress">
@@ -78,7 +79,7 @@
           </div>
         </form>
 
-        <p class="feedback" id="feedback">The first flag is on deck. Trust your geography instincts.</p>
+        <p class="feedback" id="feedback">Ready.</p>
 
         <div class="actions">
           <button class="secondary" type="button" id="hintButton">Reveal hint</button>
@@ -97,22 +98,12 @@
         <div class="world-map-wrap" id="worldMapWrap" aria-live="polite">
           <div class="map-loading">Loading world map...</div>
         </div>
-        <div class="map-control-bar" aria-label="Map zoom controls">
-          <button class="secondary icon-control" type="button" id="mapZoomOutButton" aria-label="Zoom out">-</button>
-          <span class="zoom-readout" id="mapZoomReadout">100%</span>
-          <button class="secondary icon-control" type="button" id="mapZoomInButton" aria-label="Zoom in">+</button>
-          <button class="secondary compact-control" type="button" id="mapZoomResetButton">Reset</button>
-        </div>
-        <div class="stage-footer">
-          <span class="stage-tip">Correct country names light up on the map.</span>
-          <span class="stage-tip">Progress saves until Restart is pressed.</span>
-        </div>
       </div>
 
       <aside class="answer-panel">
         <div class="panel-title">
           <h2>Name every country</h2>
-          <p>Type a country name and it will be highlighted when the game detects a match.</p>
+          <p>Type to highlight it.</p>
         </div>
 
         <div class="progress-card" aria-label="Map game progress">
@@ -133,7 +124,7 @@
           </div>
         </form>
 
-        <p class="feedback" id="mapFeedback">Start anywhere on the globe.</p>
+        <p class="feedback" id="mapFeedback">Ready.</p>
 
         <div class="actions map-actions">
           <button class="secondary" type="button" id="missingCountriesButton" aria-pressed="false">Show missing dots</button>
@@ -148,10 +139,8 @@
           <span class="table-icon" aria-hidden="true">🏁</span>
           <div>
             <h2>Continent Board</h2>
-            <span class="table-note">Correct guesses unlock rows below</span>
           </div>
         </div>
-        <span class="table-note">Grouped by continent</span>
       </div>
       <div class="table-scroll">
         <table>
@@ -169,7 +158,7 @@
       </div>
     </section>
   </main>
-  <script src="data/countries.js?v=2026-06-06-map-tools"></script>
-  <script src="app.js?v=2026-06-06-map-tools"></script>
+  <script src="data/countries.js?v=2026-06-07-map-timer"></script>
+  <script src="app.js?v=2026-06-07-map-timer"></script>
 </body>
 </html>

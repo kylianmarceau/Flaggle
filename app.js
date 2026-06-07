@@ -1,12 +1,13 @@
 const COUNTRIES = window.COUNTRIES;
 const TOTAL = COUNTRIES.length;
-const ASSET_VERSION = "2026-06-06-map-tools";
+const ASSET_VERSION = "2026-06-07-map-timer";
 const CONTINENT_ORDER = ["Africa", "Asia", "Europe", "North America", "Oceania", "South America"];
-const MAP_WIDTH = 1000;
-const MAP_HEIGHT = 560;
+const MAP_WIDTH = 1200;
+const MAP_HEIGHT = 1200;
+const MAP_LAT_LIMIT = 85.05112878;
 const MAP_MIN_ZOOM = 1;
-const MAP_MAX_ZOOM = 6;
-const MAP_ZOOM_STEP = 1.35;
+const MAP_MAX_ZOOM = 8;
+const TIMER_SECONDS = 300;
 const MICROSTATE_CODES = new Set(["AD", "AG", "BB", "BH", "DM", "GD", "KN", "LC", "LI", "MC", "MV", "MT", "NR", "SM", "ST", "TV", "VA", "VC"]);
 
 const flagGuessed = new Set();
@@ -23,8 +24,15 @@ let mapCorrectAnswers = 0;
 let flagSelectionToken = 0;
 let mapLoadPromise = null;
 let mapReady = false;
-let mapZoom = 1;
+let mapHomeView = { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT };
+let mapView = { ...mapHomeView };
+let mapBounds = null;
+let mapPointer = null;
+let mapResizeObserver = null;
 let missingOverlayVisible = false;
+let timerMode = false;
+let timerRemaining = TIMER_SECONDS;
+let timerInterval = null;
 
 const flagCache = new Map();
 const mapPathsByCode = new Map();
@@ -62,11 +70,9 @@ const mapGuessForm = document.getElementById("mapGuessForm");
 const mapGuessInput = document.getElementById("mapGuessInput");
 const mapFeedback = document.getElementById("mapFeedback");
 const mapResetButton = document.getElementById("mapResetButton");
-const mapZoomOutButton = document.getElementById("mapZoomOutButton");
-const mapZoomInButton = document.getElementById("mapZoomInButton");
-const mapZoomResetButton = document.getElementById("mapZoomResetButton");
-const mapZoomReadout = document.getElementById("mapZoomReadout");
 const missingCountriesButton = document.getElementById("missingCountriesButton");
+const timerToggleButton = document.getElementById("timerToggleButton");
+const timerValue = document.getElementById("timerValue");
 
 function normalize(value) {
   return String(value)
@@ -133,10 +139,82 @@ function setMapFeedback(text, type = "") {
   mapFeedback.className = "feedback" + (type ? " " + type : "");
 }
 
+function formatTimer(seconds) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes + ":" + String(remainingSeconds).padStart(2, "0");
+}
+
+function updateTimerDisplay() {
+  if (!timerToggleButton || !timerValue) return;
+  timerToggleButton.classList.toggle("is-active", timerMode);
+  timerToggleButton.setAttribute("aria-pressed", String(timerMode));
+  timerValue.textContent = timerMode ? formatTimer(timerRemaining) : "Off";
+}
+
+function stopTimer() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+function setMapControlsEnabled(enabled) {
+  mapGuessInput.disabled = !enabled || !canPlay() || mapGuessed.size === TOTAL;
+}
+
+function setPlayableControlsEnabled(enabled) {
+  setFlagControlsEnabled(enabled && Boolean(current));
+  setMapControlsEnabled(enabled);
+}
+
+function handleTimerEnd() {
+  stopTimer();
+  timerRemaining = 0;
+  updateTimerDisplay();
+  setPlayableControlsEnabled(false);
+  setFeedback("Time.", "bad");
+  setMapFeedback("Time.", "bad");
+}
+
+function startTimer() {
+  stopTimer();
+  updateTimerDisplay();
+  timerInterval = setInterval(() => {
+    timerRemaining = Math.max(0, timerRemaining - 1);
+    updateTimerDisplay();
+    if (timerRemaining === 0) handleTimerEnd();
+  }, 1000);
+}
+
+function restartTimerIfNeeded() {
+  if (!timerMode) return;
+  timerRemaining = TIMER_SECONDS;
+  startTimer();
+}
+
+function toggleTimerMode() {
+  timerMode = !timerMode;
+  if (timerMode) {
+    timerRemaining = TIMER_SECONDS;
+    startTimer();
+    setFeedback("Timer on.", "good");
+    setMapFeedback("Timer on.", "good");
+  } else {
+    stopTimer();
+    timerRemaining = TIMER_SECONDS;
+    updateTimerDisplay();
+    setPlayableControlsEnabled(true);
+    setFeedback("Timer off.");
+    setMapFeedback("Timer off.");
+  }
+}
+
 function setFlagControlsEnabled(enabled) {
-  guessInput.disabled = !enabled;
-  hintButton.disabled = !enabled;
-  skipButton.disabled = !enabled;
+  const canUseControls = enabled && canPlay();
+  guessInput.disabled = !canUseControls;
+  hintButton.disabled = !canUseControls;
+  skipButton.disabled = !canUseControls;
 }
 
 function setMode(mode) {
@@ -154,16 +232,22 @@ function setMode(mode) {
 
   if (mode === "map") {
     modeTitle.textContent = "Country Guesser";
-    modeCopy.textContent = "Name every country on the world map. Each correct answer lights up its territory until the whole board is complete.";
+    modeCopy.textContent = "Type countries to fill the map.";
     renderGuessed();
     initWorldMap();
-    mapGuessInput.focus({ preventScroll: true });
+    mapGuessInput.disabled = !canPlay() || mapGuessed.size === TOTAL;
+    if (canPlay()) mapGuessInput.focus({ preventScroll: true });
   } else {
     modeTitle.textContent = "Flag Rush";
-    modeCopy.textContent = "A faster, punchier take on the country flag guessing game. Decode the flag, build your streak, and fill the continent board.";
+    modeCopy.textContent = "Guess the flag.";
     renderGuessed();
-    guessInput.focus();
+    setFlagControlsEnabled(Boolean(current));
+    if (canPlay()) guessInput.focus();
   }
+}
+
+function canPlay() {
+  return !timerMode || timerRemaining > 0;
 }
 
 function clamp(value, min, max) {
@@ -229,7 +313,7 @@ async function pickNext() {
     flagWrap.setAttribute("aria-label", "All countries complete");
     setFlagControlsEnabled(false);
     if (statusPill) statusPill.textContent = "World complete";
-    setFeedback("Complete. All 196 countries have been guessed.", "good");
+    setFeedback("Complete.", "good");
     return;
   }
 
@@ -280,11 +364,11 @@ function renderGuessed() {
   accuracyStat.textContent = attempts ? Math.round((correctAnswers / attempts) * 100) + "%" : "100%";
 
   if (activeMode === "map") {
-    progressText.textContent = guessedCount + " mapped, " + (TOTAL - guessedCount) + " still blank";
-    if (mapProgressText) mapProgressText.textContent = guessedCount + " guessed, " + (TOTAL - guessedCount) + " remaining";
+    progressText.textContent = guessedCount + " / " + TOTAL;
+    if (mapProgressText) mapProgressText.textContent = guessedCount + " / " + TOTAL;
   } else {
-    progressText.textContent = guessedCount + " guessed, " + (TOTAL - guessedCount) + " still hidden";
-    if (mapProgressText) mapProgressText.textContent = mapGuessed.size + " guessed, " + (TOTAL - mapGuessed.size) + " remaining";
+    progressText.textContent = guessedCount + " / " + TOTAL;
+    if (mapProgressText) mapProgressText.textContent = mapGuessed.size + " / " + TOTAL;
   }
 
   const activeWidth = ((guessedCount / TOTAL) * 100).toFixed(1) + "%";
@@ -314,6 +398,7 @@ function renderGuessed() {
 }
 
 function checkFlagGuess({ showWrong = false, fullNameOnly = false } = {}) {
+  if (!canPlay()) return;
   if (!current) return;
 
   const exactAnswer = normalizeExactName(guessInput.value);
@@ -328,13 +413,13 @@ function checkFlagGuess({ showWrong = false, fullNameOnly = false } = {}) {
     flagCorrectAnswers += 1;
     guessInput.value = "";
     renderGuessed();
-    setFeedback("Correct: " + current.name + ". Streak now " + flagStreak + ".", "good");
+    setFeedback("Correct: " + current.name + ".", "good");
     pickNext();
   } else if (showWrong) {
     flagAttempts += 1;
     flagStreak = 0;
     renderGuessed();
-    setFeedback("Not quite. Streak reset, but the flag is still live.", "bad");
+    setFeedback("Try again.", "bad");
     guessInput.select();
   }
 }
@@ -356,10 +441,12 @@ function loadMapData() {
 
 function projectPoint(point) {
   const lon = point[0];
-  const lat = point[1];
+  const lat = clamp(point[1], -MAP_LAT_LIMIT, MAP_LAT_LIMIT);
+  const latRadians = (lat * Math.PI) / 180;
+  const mercatorY = Math.log(Math.tan(Math.PI / 4 + latRadians / 2));
   return [
     ((lon + 180) / 360) * MAP_WIDTH,
-    ((90 - lat) / 180) * MAP_HEIGHT,
+    (0.5 - mercatorY / (2 * Math.PI)) * MAP_HEIGHT,
   ];
 }
 
@@ -417,10 +504,117 @@ function geometryMeta(geometry, code) {
   };
 }
 
+function mapAspect() {
+  const rect = worldMapWrap.getBoundingClientRect();
+  return rect.width && rect.height ? rect.width / rect.height : 16 / 9;
+}
+
+function computeMapBounds(features) {
+  const bounds = {
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
+  };
+
+  features.forEach((feature) => {
+    eachGeometryPoint(feature.geometry, (point) => {
+      const projected = projectPoint(point);
+      bounds.minX = Math.min(bounds.minX, projected[0]);
+      bounds.minY = Math.min(bounds.minY, projected[1]);
+      bounds.maxX = Math.max(bounds.maxX, projected[0]);
+      bounds.maxY = Math.max(bounds.maxY, projected[1]);
+    });
+  });
+
+  return bounds;
+}
+
+function viewFromBounds(bounds, aspect) {
+  const padding = 26;
+  const minX = Math.max(0, bounds.minX - padding);
+  const minY = Math.max(0, bounds.minY - padding);
+  const maxX = Math.min(MAP_WIDTH, bounds.maxX + padding);
+  const maxY = Math.min(MAP_HEIGHT, bounds.maxY + padding);
+  let width = maxX - minX;
+  let height = maxY - minY;
+  let centerX = (minX + maxX) / 2;
+  let centerY = (minY + maxY) / 2;
+
+  if (width / height > aspect) {
+    height = width / aspect;
+  } else {
+    width = height * aspect;
+  }
+
+  width = Math.min(width, MAP_WIDTH);
+  height = Math.min(height, MAP_HEIGHT);
+  return clampMapView({
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height,
+  }, { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT });
+}
+
+function clampMapView(view, bounds = mapHomeView) {
+  const width = Math.min(Math.max(view.width, bounds.width / MAP_MAX_ZOOM), bounds.width);
+  const height = Math.min(Math.max(view.height, bounds.height / MAP_MAX_ZOOM), bounds.height);
+  const maxX = bounds.x + bounds.width - width;
+  const maxY = bounds.y + bounds.height - height;
+  return {
+    x: clamp(view.x, bounds.x, Math.max(bounds.x, maxX)),
+    y: clamp(view.y, bounds.y, Math.max(bounds.y, maxY)),
+    width,
+    height,
+  };
+}
+
+function resetMapView() {
+  if (!mapBounds) return;
+  mapHomeView = viewFromBounds(mapBounds, mapAspect());
+  mapView = { ...mapHomeView };
+  updateMapViewBox();
+}
+
+function zoomMapAt(clientX, clientY, nextZoom) {
+  const svg = worldMapWrap.querySelector(".world-map");
+  if (!svg) return;
+
+  const rect = svg.getBoundingClientRect();
+  const zoom = clamp(nextZoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM);
+  const nextWidth = mapHomeView.width / zoom;
+  const nextHeight = mapHomeView.height / zoom;
+  const rx = rect.width ? (clientX - rect.left) / rect.width : 0.5;
+  const ry = rect.height ? (clientY - rect.top) / rect.height : 0.5;
+  const anchorX = mapView.x + rx * mapView.width;
+  const anchorY = mapView.y + ry * mapView.height;
+
+  mapView = clampMapView({
+    x: anchorX - rx * nextWidth,
+    y: anchorY - ry * nextHeight,
+    width: nextWidth,
+    height: nextHeight,
+  });
+  updateMapViewBox();
+}
+
+function panMapBy(deltaX, deltaY) {
+  const svg = worldMapWrap.querySelector(".world-map");
+  if (!svg) return;
+  const rect = svg.getBoundingClientRect();
+  mapView = clampMapView({
+    ...mapView,
+    x: mapView.x - (deltaX / Math.max(1, rect.width)) * mapView.width,
+    y: mapView.y - (deltaY / Math.max(1, rect.height)) * mapView.height,
+  });
+  updateMapViewBox();
+}
+
 async function initWorldMap() {
   if (mapReady) {
     syncMapHighlights();
-    updateMapViewBox();
+    resetMapView();
     return;
   }
 
@@ -432,6 +626,7 @@ async function initWorldMap() {
     const countryPaths = [];
     const markerDots = [];
     const missingDots = [];
+    mapBounds = computeMapBounds(features);
     mapPathsByCode.clear();
     mapMarkersByCode.clear();
     mapMissingDotsByCode.clear();
@@ -470,7 +665,8 @@ async function initWorldMap() {
     mapReady = true;
     if (mapStatusPill) mapStatusPill.textContent = "World map ready";
     if (mapLoadedText) mapLoadedText.textContent = TOTAL + " countries mapped";
-    updateMapViewBox();
+    resetMapView();
+    bindMapInteractions();
     syncMapHighlights();
   } catch (error) {
     worldMapWrap.innerHTML = '<div class="map-loading">Map data could not load.</div>';
@@ -483,20 +679,7 @@ function updateMapViewBox() {
   const svg = worldMapWrap.querySelector(".world-map");
   if (!svg) return;
 
-  const width = MAP_WIDTH / mapZoom;
-  const height = MAP_HEIGHT / mapZoom;
-  const x = (MAP_WIDTH - width) / 2;
-  const y = (MAP_HEIGHT - height) / 2;
-  svg.setAttribute("viewBox", [x, y, width, height].map((value) => value.toFixed(2)).join(" "));
-
-  if (mapZoomReadout) mapZoomReadout.textContent = Math.round(mapZoom * 100) + "%";
-  if (mapZoomOutButton) mapZoomOutButton.disabled = mapZoom <= MAP_MIN_ZOOM;
-  if (mapZoomInButton) mapZoomInButton.disabled = mapZoom >= MAP_MAX_ZOOM;
-}
-
-function setMapZoom(nextZoom) {
-  mapZoom = clamp(nextZoom, MAP_MIN_ZOOM, MAP_MAX_ZOOM);
-  updateMapViewBox();
+  svg.setAttribute("viewBox", [mapView.x, mapView.y, mapView.width, mapView.height].map((value) => value.toFixed(2)).join(" "));
 }
 
 function buildMapGrid() {
@@ -506,10 +689,55 @@ function buildMapGrid() {
     lines.push('<line x1="' + x.toFixed(2) + '" y1="0" x2="' + x.toFixed(2) + '" y2="' + MAP_HEIGHT + '"></line>');
   }
   for (let lat = -60; lat <= 60; lat += 30) {
-    const y = ((90 - lat) / 180) * MAP_HEIGHT;
+    const y = projectPoint([0, lat])[1];
     lines.push('<line x1="0" y1="' + y.toFixed(2) + '" x2="' + MAP_WIDTH + '" y2="' + y.toFixed(2) + '"></line>');
   }
   return lines.join("");
+}
+
+function bindMapInteractions() {
+  const svg = worldMapWrap.querySelector(".world-map");
+  if (!svg || worldMapWrap.dataset.bound === "true") return;
+  worldMapWrap.dataset.bound = "true";
+
+  worldMapWrap.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const currentZoom = mapHomeView.width / mapView.width;
+    const factor = event.deltaY < 0 ? 1.16 : 1 / 1.16;
+    zoomMapAt(event.clientX, event.clientY, currentZoom * factor);
+  }, { passive: false });
+
+  worldMapWrap.addEventListener("pointerdown", (event) => {
+    mapPointer = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    worldMapWrap.classList.add("is-dragging");
+    worldMapWrap.setPointerCapture(event.pointerId);
+  });
+
+  worldMapWrap.addEventListener("pointermove", (event) => {
+    if (!mapPointer || mapPointer.id !== event.pointerId) return;
+    panMapBy(event.clientX - mapPointer.x, event.clientY - mapPointer.y);
+    mapPointer.x = event.clientX;
+    mapPointer.y = event.clientY;
+  });
+
+  function releasePointer(event) {
+    if (!mapPointer || mapPointer.id !== event.pointerId) return;
+    mapPointer = null;
+    worldMapWrap.classList.remove("is-dragging");
+  }
+
+  worldMapWrap.addEventListener("pointerup", releasePointer);
+  worldMapWrap.addEventListener("pointercancel", releasePointer);
+  worldMapWrap.addEventListener("dblclick", resetMapView);
+
+  if ("ResizeObserver" in window) {
+    mapResizeObserver = new ResizeObserver(resetMapView);
+    mapResizeObserver.observe(worldMapWrap);
+  }
 }
 
 function syncMapHighlights() {
@@ -548,6 +776,7 @@ function countryFromMapAnswer(value) {
 }
 
 function revealMapCountry(country) {
+  if (!canPlay()) return;
   mapGuessed.add(country.name);
   mapStreak += 1;
   mapAttempts += 1;
@@ -558,17 +787,18 @@ function revealMapCountry(country) {
 
   const guessedCount = mapGuessed.size;
   if (guessedCount === TOTAL) {
-    setMapFeedback("Complete. All 196 countries are highlighted.", "good");
+    setMapFeedback("Complete.", "good");
     if (mapStatusPill) mapStatusPill.textContent = "World complete";
     mapGuessInput.disabled = true;
     return;
   }
 
-  setMapFeedback(country.name + " highlighted. " + (TOTAL - guessedCount) + " countries left.", "good");
+  setMapFeedback(country.name + ".", "good");
   if (mapStatusPill) mapStatusPill.textContent = country.name + " found";
 }
 
 function checkMapInput({ showWrong = false } = {}) {
+  if (!canPlay()) return;
   const country = countryFromMapAnswer(mapGuessInput.value);
   if (country) {
     revealMapCountry(country);
@@ -579,7 +809,7 @@ function checkMapInput({ showWrong = false } = {}) {
     mapAttempts += 1;
     mapStreak = 0;
     renderGuessed();
-    setMapFeedback("Not on the board yet. Try another country name.", "bad");
+    setMapFeedback("Try again.", "bad");
     mapGuessInput.select();
   }
 }
@@ -603,13 +833,13 @@ hintButton.addEventListener("click", () => {
   const letterCount = current.name.replace(/[^A-Za-z]/g, "").length;
   const wordCount = current.name.split(/\s+/).filter(Boolean).length;
   const wordLabel = wordCount === 1 ? "word" : "words";
-  setFeedback("Hint: starts with " + current.name.charAt(0) + ", " + letterCount + " letters, " + wordCount + " " + wordLabel + ".");
+  setFeedback(current.name.charAt(0) + " - " + letterCount + " letters - " + wordCount + " " + wordLabel + ".");
 });
 
 skipButton.addEventListener("click", () => {
   flagStreak = 0;
   renderGuessed();
-  setFeedback("Skipped. Streak reset - new flag incoming.");
+  setFeedback("Skipped.");
   pickNext();
 });
 
@@ -619,10 +849,11 @@ resetButton.addEventListener("click", () => {
   flagAttempts = 0;
   flagCorrectAnswers = 0;
   guessInput.value = "";
+  restartTimerIfNeeded();
   setFlagControlsEnabled(true);
   renderGuessed();
   if (statusPill) statusPill.textContent = "Mystery flag selected";
-  setFeedback("Game reset. Fresh flags, fresh glory.");
+  setFeedback("Reset.");
   pickNext();
 });
 
@@ -640,38 +871,30 @@ mapResetButton.addEventListener("click", () => {
   mapStreak = 0;
   mapAttempts = 0;
   mapCorrectAnswers = 0;
-  mapGuessInput.disabled = false;
+  restartTimerIfNeeded();
+  mapGuessInput.disabled = !canPlay();
   mapGuessInput.value = "";
   renderGuessed();
   syncMapHighlights();
   if (mapStatusPill) mapStatusPill.textContent = "World map ready";
-  setMapFeedback("Map reset. Start anywhere on the globe.");
-  mapGuessInput.focus({ preventScroll: true });
-});
-
-mapZoomOutButton.addEventListener("click", () => {
-  setMapZoom(mapZoom / MAP_ZOOM_STEP);
-});
-
-mapZoomInButton.addEventListener("click", () => {
-  setMapZoom(mapZoom * MAP_ZOOM_STEP);
-});
-
-mapZoomResetButton.addEventListener("click", () => {
-  setMapZoom(1);
+  setMapFeedback("Reset.");
+  if (canPlay()) mapGuessInput.focus({ preventScroll: true });
 });
 
 missingCountriesButton.addEventListener("click", () => {
   missingOverlayVisible = !missingOverlayVisible;
   syncMissingCountryDots();
   const missingCount = TOTAL - mapGuessed.size;
-  setMapFeedback(missingOverlayVisible ? missingCount + " missing countries marked on the map." : "Missing country dots hidden.");
+  setMapFeedback(missingOverlayVisible ? missingCount + " marked." : "Dots hidden.");
 });
+
+timerToggleButton.addEventListener("click", toggleTimerMode);
 
 if (TOTAL !== 196) {
   setFeedback("Dataset error: expected 196 countries, found " + TOTAL + ".", "bad");
 } else {
   renderGuessed();
+  updateTimerDisplay();
   pickNext();
   warmFlagCache();
 }
