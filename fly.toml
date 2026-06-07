@@ -1,4 +1,4 @@
-app = "locato-quest"
+app = "locato"
 primary_region = "ams"
 
 [env]
