@@ -333,3 +333,117 @@
 
 .feedback.good { color: var(--good); border-color: rgba(152, 223, 116, 0.42); background: rgba(152,223,116,0.08); }
 .feedback.bad { color: var(--bad); border-color: rgba(238,125,107,0.45); background: rgba(238,125,107,0.08); }
+
+.loading-screen {
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-weight: 720;
+}
+
+.country-guess-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: clamp(8px, 1.2dvh, 12px);
+}
+
+.world-map-panel {
+  position: relative;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(232, 226, 211, 0.035) 1px, transparent 1px) 0 0 / 70px 70px,
+    linear-gradient(90deg, rgba(232, 226, 211, 0.026) 1px, transparent 1px) 0 0 / 70px 70px,
+    radial-gradient(circle at 50% 44%, rgba(184, 227, 109, 0.08), transparent 56%),
+    #090d0a;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.28);
+}
+
+.world-map-svg {
+  width: 100%;
+  height: 100%;
+  min-height: clamp(300px, calc(100dvh - 310px), 620px);
+  display: block;
+}
+
+.world-map-country {
+  fill: rgba(232, 226, 211, 0.09);
+  stroke: rgba(232, 226, 211, 0.34);
+  stroke-width: 0.55;
+  transition: fill 180ms ease, stroke 180ms ease, filter 180ms ease;
+}
+
+.world-map-country.is-guessed {
+  fill: rgba(184, 227, 109, 0.74);
+  stroke: rgba(245, 244, 206, 0.9);
+  stroke-width: 0.9;
+  filter: drop-shadow(0 0 5px rgba(184, 227, 109, 0.35));
+}
+
+.world-map-country-unplayable {
+  fill: rgba(232, 226, 211, 0.04);
+  stroke: rgba(232, 226, 211, 0.14);
+}
+
+.world-map-meta {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.world-map-meta span {
+  min-width: 82px;
+  padding: 7px 9px;
+  border: 1px solid rgba(232, 226, 211, 0.12);
+  border-radius: var(--radius-sm);
+  background: rgba(6, 8, 6, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.world-map-meta strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.country-guess-panel {
+  grid-template-columns: minmax(0, 1fr) minmax(148px, auto) minmax(240px, 0.75fr) auto;
+  align-items: end;
+  width: 100%;
+}
+
+.country-guess-form {
+  min-width: 0;
+}
+
+.country-guess-summary {
+  min-height: clamp(52px, 6.4dvh, 60px);
+  padding: 8px 11px;
+  border: 1px solid rgba(232, 226, 211, 0.12);
+  border-radius: var(--radius-sm);
+  display: grid;
+  align-content: center;
+  background: rgba(255, 255, 255, 0.022);
+}
+
+.country-guess-summary span {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 620;
+}
+
+.country-guess-summary strong {
+  color: var(--text);
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
