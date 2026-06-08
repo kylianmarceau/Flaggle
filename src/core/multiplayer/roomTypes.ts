@@ -13,7 +13,7 @@ export interface PublicPlayerState {
 }
 
 export interface PublicPromptContent {
-  readonly kind: "image" | "text";
+  readonly kind: "image" | "text" | "map-click";
   readonly value: string;
 }
 

@@ -3,7 +3,7 @@ import { createGameEngine, createRandomSeed, type GameEngine, type GameState } f
 import { DEFAULT_CATEGORY_IDS, resolveCategoryIds } from "../core/categories";
 import { clearSoloSave, hydrateGameState, readSoloSave, saveSoloGame } from "../storage/localSave";
 import { createWebSocketMultiplayerTransport, resolveDefaultWebSocketUrl, type MultiplayerTransport } from "../core/multiplayer";
-import { loadWorldCountryFeatures } from "../core/map";
+import { loadWorldCountryFeatures, type WorldCountryFeature } from "../core/map";
 import { createCountryGuessingScreen } from "../ui/screens/CountryGuessingScreen";
 import { createSoloGameScreen } from "../ui/screens/SoloGameScreen";
 import { createMultiplayerLobbyScreen } from "../ui/screens/MultiplayerLobbyScreen";
@@ -111,9 +111,26 @@ export function createApp(options: AppOptions): App {
     }
   }
 
-  function startMultiplayer(): void {
+  async function startMultiplayer(): Promise<void> {
+    const run = navigationRun;
+    const loading = createLoadingScreen("Loading multiplayer...");
+    mount(loading);
+
+    let worldCountryFeatures: readonly WorldCountryFeature[];
+    try {
+      worldCountryFeatures = await loadWorldCountryFeatures();
+    } catch (error) {
+      if (run !== navigationRun) return;
+      loading.element.textContent = error instanceof Error ? error.message : "Unable to load multiplayer map data.";
+      return;
+    }
+
+    if (run !== navigationRun) return;
+
     mount(
       createMultiplayerLobbyScreen({
+        countryIndex: options.countryIndex,
+        worldCountryFeatures,
         createOnlineTransport: createDefaultOnlineTransport,
         onBackToSolo: () => {
           const save = readSoloSave(options.storage);
@@ -137,7 +154,7 @@ export function createApp(options: AppOptions): App {
     }
 
     if (route.type === "multiplayer") {
-      startMultiplayer();
+      void startMultiplayer();
       return;
     }
   }

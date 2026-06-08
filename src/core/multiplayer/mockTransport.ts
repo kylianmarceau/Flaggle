@@ -16,6 +16,7 @@ const DEMO_ROUNDS: ReadonlyArray<{ readonly prompt: PublicPromptContent; readonl
   { prompt: { kind: "image", value: "assets/flags/jp.svg" }, answer: "japan", reveal: "Japan" },
   { prompt: { kind: "image", value: "assets/country-shapes/ca.svg" }, answer: "canada", reveal: "Canada" },
   { prompt: { kind: "text", value: "BR" }, answer: "brazil", reveal: "Brazil (BR)" },
+  { prompt: { kind: "map-click", value: "Japan" }, answer: "jp", reveal: "Japan" },
 ];
 
 function createPlayer(id: string, name: string, ready: boolean): PublicPlayerState {
@@ -29,7 +30,7 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
   let assignedPlayerId = HOST_PLAYER_ID;
   let roundIndex = -1;
   let advanceTimer: ReturnType<typeof setTimeout> | null = null;
-  let room: PublicRoomState = lobbyRoom(["flags", "shapes", "codes"], "You");
+  let room: PublicRoomState = lobbyRoom(["flags", "shapes", "codes", "pick-country"], "You");
 
   function lobbyRoom(categoryIds: readonly string[], hostName: string): PublicRoomState {
     return {
@@ -126,7 +127,7 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
         room = {
           roomCode: message.roomCode || DEMO_ROOM_CODE,
           hostPlayerId: HOST_PLAYER_ID,
-          categoryIds: ["flags", "shapes", "codes"],
+          categoryIds: ["flags", "shapes", "codes", "pick-country"],
           status: "lobby",
           players: [createPlayer(HOST_PLAYER_ID, "Host", true), createPlayer("guest", message.playerName, false)],
           round: null,

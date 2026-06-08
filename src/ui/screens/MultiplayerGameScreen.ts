@@ -1,6 +1,9 @@
 import type { FinalResult, PlayerId, PublicRoomState, PublicRoundState, RoundResult } from "../../core/multiplayer";
+import type { CountryIndex } from "../../core/countries";
+import type { WorldCountryFeature } from "../../core/map";
 import { el } from "../dom/createElement";
 import { promptImageClass } from "../dom/renderPrompt";
+import { createWorldMapView } from "../dom/renderWorldMap";
 
 export interface MultiplayerGameViewState {
   readonly room: PublicRoomState;
@@ -18,6 +21,12 @@ export interface MultiplayerGameView {
   readonly submitButton: HTMLButtonElement;
   readonly update: (state: MultiplayerGameViewState) => void;
   readonly destroy: () => void;
+}
+
+export interface MultiplayerGameViewOptions {
+  readonly countryIndex: CountryIndex;
+  readonly worldCountryFeatures: readonly WorldCountryFeature[];
+  readonly onSubmit: (answer: string) => void;
 }
 
 function formatScore(value: number): string {
@@ -60,7 +69,7 @@ function createFinalRows(results: readonly FinalResult[]): readonly HTMLElement[
   );
 }
 
-export function createMultiplayerGameView(onSubmit: (answer: string) => void): MultiplayerGameView {
+export function createMultiplayerGameView(options: MultiplayerGameViewOptions): MultiplayerGameView {
   const flagSlot = el("div", { className: "multiplayer-flag-slot" });
   const roundKicker = el("p", { className: "round-kicker", text: "Waiting for the next round" });
   const timerFill = el("div", { className: "multiplayer-timer-fill" });
@@ -77,6 +86,20 @@ export function createMultiplayerGameView(onSubmit: (answer: string) => void): M
     className: "guess-form multiplayer-answer-form",
     children: [el("label", { text: "Your answer" }), el("div", { className: "input-row", children: [answerInput, submitButton] })],
   });
+  const mapTargetName = el("strong", { className: "multiplayer-map-target-name", text: "—" });
+  const mapTarget = el("div", {
+    className: "multiplayer-map-target",
+    children: [el("span", { text: "Pick this country" }), mapTargetName],
+  });
+  const mapView = createWorldMapView(options.worldCountryFeatures, options.countryIndex, {
+    onCountryClick: (countryId) => {
+      const country = options.countryIndex.byId[countryId];
+      if (!country || answerInput.disabled) return;
+      options.onSubmit(country.code);
+    },
+  });
+  mapView.element.classList.add("multiplayer-map-panel");
+  const mapPrompt = el("div", { className: "multiplayer-map-prompt", children: [mapTarget, mapView.element] });
 
   let renderedRoundKey: string | null = null;
   let focusedRoundKey: string | null = null;
@@ -120,7 +143,7 @@ export function createMultiplayerGameView(onSubmit: (answer: string) => void): M
     event.preventDefault();
     const answer = answerInput.value.trim();
     if (!answer) return;
-    onSubmit(answer);
+    options.onSubmit(answer);
     answerInput.value = "";
   });
 
@@ -154,6 +177,7 @@ export function createMultiplayerGameView(onSubmit: (answer: string) => void): M
     update: (state) => {
       const visibleRound = state.round ?? state.room.round;
       const roundKey = visibleRound ? `${state.room.roomCode}:${visibleRound.roundNumber}:${visibleRound.startedAt}:${visibleRound.prompt.kind}:${visibleRound.prompt.value}` : null;
+      const isMapClickRound = visibleRound?.prompt.kind === "map-click";
       const isNewRound = roundKey !== null && roundKey !== renderedRoundKey;
       if (isNewRound) answerInput.value = "";
       renderedRoundKey = roundKey;
@@ -170,21 +194,26 @@ export function createMultiplayerGameView(onSubmit: (answer: string) => void): M
       feedback.textContent = state.feedback;
       answerInput.disabled = !state.canSubmit;
       submitButton.disabled = !state.canSubmit;
+      answerForm.hidden = isMapClickRound;
+      mapView.element.classList.toggle("is-disabled", !state.canSubmit);
       // Focus the first time a round becomes submittable, not on round identity alone: the
       // ROUND_STARTED/GAME_STARTED frame arrives while status is still round-result/lobby
       // (canSubmit false), and the playing snapshot follows separately. Keying focus off
       // canSubmit handles that split, and once-per-round avoids stealing the caret mid-type.
-      if (state.canSubmit && roundKey !== null && roundKey !== focusedRoundKey) {
+      if (state.canSubmit && !isMapClickRound && roundKey !== null && roundKey !== focusedRoundKey) {
         answerInput.focus();
         focusedRoundKey = roundKey;
       }
 
       if (visibleRound) {
-        flagSlot.replaceChildren(
-          visibleRound.prompt.kind === "image"
-            ? el("img", { className: promptImageClass(visibleRound.prompt.value), attrs: { src: visibleRound.prompt.value, alt: "Prompt to guess" } })
-            : el("div", { className: "prompt-text", text: visibleRound.prompt.value }),
-        );
+        if (visibleRound.prompt.kind === "image") {
+          flagSlot.replaceChildren(el("img", { className: promptImageClass(visibleRound.prompt.value), attrs: { src: visibleRound.prompt.value, alt: "Prompt to guess" } }));
+        } else if (visibleRound.prompt.kind === "map-click") {
+          mapTargetName.textContent = visibleRound.prompt.value;
+          flagSlot.replaceChildren(mapPrompt);
+        } else {
+          flagSlot.replaceChildren(el("div", { className: "prompt-text", text: visibleRound.prompt.value }));
+        }
       } else {
         flagSlot.replaceChildren(el("div", { className: "complete-card", text: "The server will reveal the next prompt when the room starts." }));
       }

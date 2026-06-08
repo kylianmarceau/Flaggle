@@ -31,3 +31,13 @@ export const codesCategory: PromptCategory = {
   accepts: (country, guess, auto) => matchesCountryName(country, guess, auto, false),
   reveal: (country) => `${country.name} (${country.code})`,
 };
+
+export const pickCountryCategory: PromptCategory = {
+  id: "pick-country",
+  label: "Pick the country",
+  description: "Click the named country on the world map.",
+  eligible: () => true,
+  prompt: (country) => ({ kind: "map-click", value: country.name }),
+  accepts: (country, guess) => guess.trim().toUpperCase() === country.code,
+  reveal: (country) => country.name,
+};
