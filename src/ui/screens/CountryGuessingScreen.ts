@@ -2,6 +2,7 @@ import type { Country, CountryId, CountryIndex } from "../../core/countries";
 import { detectCountryGuess, submitCountryGuess, type WorldCountryFeature } from "../../core/map";
 import type { Screen } from "../../app/router";
 import { el } from "../dom/createElement";
+import { createAtlasView, setAtlasOpen, updateAtlasView } from "../dom/renderAtlas";
 import { createFeedbackView, showFeedback } from "../dom/renderFeedback";
 import { createWorldMapView, setWorldMapMissingMarkersVisible, updateWorldMapView } from "../dom/renderWorldMap";
 
@@ -248,6 +249,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
 
   function render(): void {
     updateWorldMapView(map, guessedCountryIds, countryIndex.countries.length);
+    updateAtlasView(atlas, countryIndex.countries, guessedCountryIds);
     const finished = complete();
     const namingModeActive = playMode === "name-all";
     panelHeading.textContent = namingModeActive ? "Name every country" : "Click the country";
@@ -265,6 +267,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   }
 
   function resetGame(feedbackMessage: string): void {
+    setAtlasOpen(atlas, false);
     guessedCountryIds.clear();
     input.value = "";
     lastCountryName.textContent = "None";
@@ -360,6 +363,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   }
 
   const map = createWorldMapView(options.worldCountryFeatures, countryIndex, { onCountryClick: handleCountryClick });
+  const atlas = createAtlasView(countryIndex.countries);
   const feedback = createFeedbackView();
   const input = el("input", {
     attrs: { id: "guess-input", name: "guess", type: "text", autocomplete: "off", autocapitalize: "words", spellcheck: "false", placeholder: "e.g. Brazil, Japan, ZA..." },
@@ -450,6 +454,9 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   );
   soloButton.addEventListener("click", options.onBackToSolo, { signal: controller.signal });
   multiplayerButton.addEventListener("click", options.onMultiplayer, { signal: controller.signal });
+  atlas.openButton.addEventListener("click", () => setAtlasOpen(atlas, true), { signal: controller.signal });
+  atlas.closeButton.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
+  atlas.overlay.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
 
   const element = el("section", {
     className: "game-screen country-guess-screen",
@@ -476,7 +483,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
               form,
               statsPanel,
               feedback.element,
-              el("div", { className: "actions", children: [showMissingButton, resetButton] }),
+              el("div", { className: "actions", children: [showMissingButton, resetButton, atlas.element] }),
             ],
           }),
         ],

@@ -11,6 +11,11 @@ const MAX_ZOOM = 8;
 const ZOOM_IN_FACTOR = 0.78;
 const ZOOM_OUT_FACTOR = 1.22;
 const MISSING_DOT_BASE_RADIUS = 2;
+const WHEEL_ZOOM_SENSITIVITY = 0.0018;
+const WHEEL_DELTA_LINE_PIXELS = 40;
+const WHEEL_DELTA_PAGE_PIXELS = 800;
+const MAX_WHEEL_DELTA_PIXELS = 140;
+const MIN_WHEEL_DELTA_PIXELS = 0.35;
 
 type ProjectedPoint = readonly [number, number];
 
@@ -192,6 +197,23 @@ function zoomAround(svg: SVGSVGElement, viewBox: ViewBoxState, factor: number, c
   });
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function wheelDeltaYToPixels(event: WheelEvent): number {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * WHEEL_DELTA_LINE_PIXELS;
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) return event.deltaY * WHEEL_DELTA_PAGE_PIXELS;
+  return event.deltaY;
+}
+
+function zoomFactorFromWheelDelta(deltaPixels: number): number | null {
+  if (Math.abs(deltaPixels) < MIN_WHEEL_DELTA_PIXELS) return null;
+
+  const boundedDelta = clampNumber(deltaPixels, -MAX_WHEEL_DELTA_PIXELS, MAX_WHEEL_DELTA_PIXELS);
+  return Math.exp(boundedDelta * WHEEL_ZOOM_SENSITIVITY);
+}
+
 function countryIdFromEventTarget(target: EventTarget | null): CountryId | null {
   const element = target instanceof Element ? target : null;
   const countryPath = element?.closest<SVGPathElement>(".world-map-country[data-country-id]");
@@ -215,6 +237,10 @@ export function createWorldMapView(features: readonly WorldCountryFeature[], cou
   let viewBox: ViewBoxState = { ...DEFAULT_VIEWBOX };
   let panState: PanState | null = null;
   let suppressNextCountryClick = false;
+  let pendingWheelDelta = 0;
+  let pendingWheelClientX = 0;
+  let pendingWheelClientY = 0;
+  let wheelAnimationFrame: number | null = null;
 
   for (const feature of features) {
     const country = countryIndex.byCode.get(feature.code.toUpperCase());
@@ -270,11 +296,27 @@ export function createWorldMapView(features: readonly WorldCountryFeature[], cou
     setViewBox(DEFAULT_VIEWBOX);
   }
 
+  function applyPendingWheelZoom(): void {
+    wheelAnimationFrame = null;
+    const deltaPixels = pendingWheelDelta;
+    pendingWheelDelta = 0;
+
+    const factor = zoomFactorFromWheelDelta(deltaPixels);
+    if (factor === null) return;
+
+    setViewBox(zoomAround(svg, viewBox, factor, pendingWheelClientX, pendingWheelClientY));
+  }
+
   svg.addEventListener("wheel", (event) => {
     event.preventDefault();
-    const factor = event.deltaY < 0 ? ZOOM_IN_FACTOR : ZOOM_OUT_FACTOR;
-    setViewBox(zoomAround(svg, viewBox, factor, event.clientX, event.clientY));
-  });
+    pendingWheelDelta += wheelDeltaYToPixels(event);
+    pendingWheelClientX = event.clientX;
+    pendingWheelClientY = event.clientY;
+
+    if (wheelAnimationFrame === null) {
+      wheelAnimationFrame = window.requestAnimationFrame(applyPendingWheelZoom);
+    }
+  }, { passive: false });
 
   svg.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
