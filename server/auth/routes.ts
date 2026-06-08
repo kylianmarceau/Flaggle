@@ -6,6 +6,16 @@ import type { GameResult } from "./types";
 
 const MAX_STAT_VALUE = 1_000_000;
 
+function ip(request: Request): string {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+}
+
+function log(level: "info" | "warn", action: string, details: Record<string, unknown>): void {
+  const entry = { time: new Date().toISOString(), level, action, ...details };
+  // eslint-disable-next-line no-console
+  console[level](JSON.stringify(entry));
+}
+
 function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", ...headers } });
 }
@@ -42,7 +52,11 @@ export async function handleAuthRequest(request: Request, url: URL, service: Aut
     const body = await readJsonBody(request);
     if (!body) return json({ error: "Invalid request body." }, 400);
     const result = await service.register(body);
-    if (!result.ok) return json({ error: result.error }, result.status);
+    if (!result.ok) {
+      log("warn", "register.failed", { ip: ip(request), reason: result.error, status: result.status });
+      return json({ error: result.error }, result.status);
+    }
+    log("info", "register.ok", { ip: ip(request), userId: result.user.id, email: result.user.email });
     return json({ user: result.user }, 201, { "set-cookie": serializeSessionCookie(result.session.id, service.sessionMaxAgeSeconds, cookieOptions) });
   }
 
@@ -50,12 +64,19 @@ export async function handleAuthRequest(request: Request, url: URL, service: Aut
     const body = await readJsonBody(request);
     if (!body) return json({ error: "Invalid request body." }, 400);
     const result = await service.login(body);
-    if (!result.ok) return json({ error: result.error }, result.status);
+    if (!result.ok) {
+      log("warn", "login.failed", { ip: ip(request), email: typeof body?.email === "string" ? body.email : null, reason: result.error });
+      return json({ error: result.error }, result.status);
+    }
+    log("info", "login.ok", { ip: ip(request), userId: result.user.id, email: result.user.email });
     return json({ user: result.user }, 200, { "set-cookie": serializeSessionCookie(result.session.id, service.sessionMaxAgeSeconds, cookieOptions) });
   }
 
   if (pathname === "/auth/logout" && method === "POST") {
-    service.logout(readSessionToken(request));
+    const token = readSessionToken(request);
+    const user = service.authenticate(token);
+    service.logout(token);
+    log("info", "logout", { ip: ip(request), userId: user?.id ?? null });
     return json({ ok: true }, 200, { "set-cookie": serializeClearCookie(cookieOptions) });
   }
 
@@ -76,6 +97,7 @@ export async function handleAuthRequest(request: Request, url: URL, service: Aut
   }
 
   if (pathname === "/auth/github" && method === "GET") {
+    log("info", "oauth.start", { ip: ip(request), provider: "github" });
     const state = createOAuthState();
     saveOAuthState(state, "github", Date.now());
     return redirect(buildAuthUrl("github", state, baseUrl));
@@ -85,18 +107,24 @@ export async function handleAuthRequest(request: Request, url: URL, service: Aut
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const provider = state ? consumeOAuthState(state, Date.now()) : null;
-    if (!provider || !code) return redirect("/?error=auth");
+    if (!provider || !code) {
+      log("warn", "oauth.callback.invalid", { ip: ip(request), provider: "github" });
+      return redirect("/?error=auth");
+    }
     try {
       const profile = await exchangeOAuthCode("github", code, baseUrl);
       const authUser = service.upsertOAuthUser("github", profile.id, profile);
       const session = service.createSessionFor(authUser.id);
+      log("info", "oauth.ok", { ip: ip(request), provider: "github", userId: authUser.id, email: authUser.email });
       return new Response(null, { status: 302, headers: { Location: "/", "set-cookie": serializeSessionCookie(session.id, service.sessionMaxAgeSeconds, cookieOptions) } });
-    } catch {
+    } catch (error) {
+      log("warn", "oauth.error", { ip: ip(request), provider: "github", error: String(error) });
       return redirect("/?error=auth");
     }
   }
 
   if (pathname === "/auth/google" && method === "GET") {
+    log("info", "oauth.start", { ip: ip(request), provider: "google" });
     const state = createOAuthState();
     saveOAuthState(state, "google", Date.now());
     return redirect(buildAuthUrl("google", state, baseUrl));
@@ -106,13 +134,18 @@ export async function handleAuthRequest(request: Request, url: URL, service: Aut
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const provider = state ? consumeOAuthState(state, Date.now()) : null;
-    if (!provider || !code) return redirect("/?error=auth");
+    if (!provider || !code) {
+      log("warn", "oauth.callback.invalid", { ip: ip(request), provider: "google" });
+      return redirect("/?error=auth");
+    }
     try {
       const profile = await exchangeOAuthCode("google", code, baseUrl);
       const authUser = service.upsertOAuthUser("google", profile.id, profile);
       const session = service.createSessionFor(authUser.id);
+      log("info", "oauth.ok", { ip: ip(request), provider: "google", userId: authUser.id, email: authUser.email });
       return new Response(null, { status: 302, headers: { Location: "/", "set-cookie": serializeSessionCookie(session.id, service.sessionMaxAgeSeconds, cookieOptions) } });
-    } catch {
+    } catch (error) {
+      log("warn", "oauth.error", { ip: ip(request), provider: "google", error: String(error) });
       return redirect("/?error=auth");
     }
   }

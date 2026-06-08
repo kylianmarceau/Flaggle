@@ -100,6 +100,7 @@ setInterval(() => authService.pruneExpiredSessions(), 60 * 60 * 1000).unref?.();
 const connectionMap = new WeakMap<Bun.ServerWebSocket<WebSocketData>, MultiplayerConnection>();
 
 const server = Bun.serve<WebSocketData>({
+  hostname: "0.0.0.0",
   port: readIntegerEnv("PORT", DEFAULT_PORT),
   async fetch(request, serverInstance) {
     const url = new URL(request.url);
