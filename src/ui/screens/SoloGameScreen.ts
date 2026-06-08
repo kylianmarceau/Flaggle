@@ -199,8 +199,10 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
           el("div", {
             className: "mode-controls",
             children: [
-              categoryDropdown.element,
-              el("div", { className: "mode-select-row", children: [countryGuessingButton, multiplayerButton, ...(options.authControls ? [options.authControls.trigger] : [])] }),
+              el("div", {
+                className: "mode-select-row",
+                children: [categoryDropdown.element, countryGuessingButton, multiplayerButton, ...(options.authControls ? [options.authControls.trigger] : [])],
+              }),
             ],
           }),
         ],
