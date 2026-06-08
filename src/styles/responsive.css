@@ -167,6 +167,10 @@
     min-height: clamp(200px, 36dvh, 300px);
   }
 
+  .multiplayer-map-prompt {
+    min-height: clamp(330px, 58dvh, 480px);
+  }
+
   .multiplayer-modal {
     width: 100%;
     max-height: 88dvh;

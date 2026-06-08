@@ -1,5 +1,5 @@
 import { type Country, type CountryIndex } from "../../core/countries";
-import { allCategories, getCategory } from "../../core/categories";
+import { getCategory, soloPromptCategories } from "../../core/categories";
 import { getCurrentCountry, TOTAL_HINTS, type GameEngine, type GameEvent, type GameState } from "../../core/game";
 import type { Screen } from "../../app/router";
 import { createCategoryDropdown } from "../dom/categoryDropdown";
@@ -88,7 +88,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   const countryGuessingButton = el("button", { className: "ghost-action", text: "World map", attrs: { type: "button" } });
   const multiplayerButton = el("button", { className: "ghost-action", text: "Multiplayer", attrs: { type: "button" } });
 
-  const categoryDropdown = createCategoryDropdown({ categories: allCategories, selectedIds: options.categoryIds, signal: controller.signal, onChange: options.onCategoryChange });
+  const categoryDropdown = createCategoryDropdown({ categories: soloPromptCategories, selectedIds: options.categoryIds, signal: controller.signal, onChange: options.onCategoryChange });
 
   const form = el("form", {
     className: "guess-form",

@@ -216,6 +216,55 @@
   text-align: center;
 }
 
+.multiplayer-map-prompt {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.multiplayer-map-target {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  text-align: center;
+}
+
+.multiplayer-map-target span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 720;
+}
+
+.multiplayer-map-target-name {
+  min-width: 0;
+  color: var(--accent);
+  font-size: clamp(1.35rem, 3vw, 2.4rem);
+  line-height: 1;
+}
+
+.multiplayer-map-panel {
+  min-height: 0;
+  height: 100%;
+}
+
+.multiplayer-map-panel .world-map-svg {
+  min-height: 0;
+  height: 100%;
+}
+
+.multiplayer-map-panel .world-map-meta {
+  display: none;
+}
+
+.multiplayer-map-panel.is-disabled .world-map-svg {
+  pointer-events: none;
+}
+
 /* Round/intermission countdown. Driven by requestAnimationFrame from the game view; width is set
    imperatively via scaleX so there is no CSS transition to lag behind the live deadline. */
 .multiplayer-timer {
@@ -329,6 +378,14 @@
 
   .multiplayer-flag-slot {
     min-height: 260px;
+  }
+
+  .multiplayer-map-prompt {
+    min-height: 360px;
+  }
+
+  .multiplayer-flag-slot .flag-image {
+    max-height: 240px;
   }
 
   .multiplayer-round-panel,

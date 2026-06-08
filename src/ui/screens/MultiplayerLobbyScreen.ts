@@ -1,6 +1,8 @@
 import type { MultiplayerTransport, PublicRoomState, PublicRoundState, RoundResult, FinalResult, ServerMessage, TransportStatus } from "../../core/multiplayer";
 import { createMockMultiplayerTransport } from "../../core/multiplayer";
-import { allCategories } from "../../core/categories";
+import { multiplayerPromptCategories } from "../../core/categories";
+import type { CountryIndex } from "../../core/countries";
+import type { WorldCountryFeature } from "../../core/map";
 import type { Screen } from "../../app/router";
 import { createCategoryDropdown } from "../dom/categoryDropdown";
 import { el } from "../dom/createElement";
@@ -8,6 +10,8 @@ import { createMultiplayerGameView } from "./MultiplayerGameScreen";
 import { createEndGameModal } from "./MultiplayerEndGameModal";
 
 export interface MultiplayerLobbyScreenOptions {
+  readonly countryIndex: CountryIndex;
+  readonly worldCountryFeatures: readonly WorldCountryFeature[];
   readonly createOnlineTransport: () => MultiplayerTransport;
   readonly onBackToSolo: () => void;
 }
@@ -109,7 +113,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
 
   const nameInput = el("input", { attrs: { type: "text", autocomplete: "nickname", maxlength: "32", placeholder: "Player name", value: "Player" } });
   const joinCodeInput = el("input", { attrs: { type: "text", autocomplete: "off", maxlength: "12", placeholder: "Room code" } });
-  const categoryDropdown = createCategoryDropdown({ categories: allCategories, selectedIds: ["flags"], signal: controller.signal });
+  const categoryDropdown = createCategoryDropdown({ categories: multiplayerPromptCategories, selectedIds: ["flags"], signal: controller.signal });
   const statusText = el("p", { className: "multiplayer-status", text: feedback });
   const roomCode = el("strong", { className: "room-code", text: "----" });
   const playerList = el("ul", { className: "player-list" });
@@ -143,8 +147,12 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
     ],
   });
 
-  const gameView = createMultiplayerGameView((answer) => {
-    transport?.send({ type: "SUBMIT_ANSWER", answer, clientSentAt: Date.now() });
+  const gameView = createMultiplayerGameView({
+    countryIndex: options.countryIndex,
+    worldCountryFeatures: options.worldCountryFeatures,
+    onSubmit: (answer) => {
+      transport?.send({ type: "SUBMIT_ANSWER", answer, clientSentAt: Date.now() });
+    },
   });
 
   function disconnectCurrentTransport(): void {
