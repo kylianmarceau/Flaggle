@@ -210,3 +210,24 @@
     justify-self: stretch;
   }
 }
+
+@media (max-width: 900px) {
+  .puzzle-map-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .puzzle-piece-tray {
+    max-height: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .puzzle-board-svg {
+    min-height: clamp(300px, 50dvh, 440px);
+  }
+
+  .puzzle-piece-tray {
+    grid-template-columns: 1fr;
+  }
+}
