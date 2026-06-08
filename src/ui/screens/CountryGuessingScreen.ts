@@ -1,8 +1,10 @@
-import type { Country, CountryId, CountryIndex } from "../../core/countries";
+import { CONTINENTS, type Continent, type Country, type CountryId, type CountryIndex } from "../../core/countries";
 import { detectCountryGuess, submitCountryGuess, type WorldCountryFeature } from "../../core/map";
 import type { Screen } from "../../app/router";
 import { el } from "../dom/createElement";
+import { createAtlasView, setAtlasOpen, updateAtlasView } from "../dom/renderAtlas";
 import { createFeedbackView, showFeedback } from "../dom/renderFeedback";
+import { createPuzzleMapView, type PuzzleMapProgress } from "../dom/renderPuzzleMap";
 import { createWorldMapView, setWorldMapMissingMarkersVisible, updateWorldMapView } from "../dom/renderWorldMap";
 
 export interface CountryGuessingScreenOptions {
@@ -13,7 +15,7 @@ export interface CountryGuessingScreenOptions {
   readonly onMultiplayer: () => void;
 }
 
-type CountryGuessPlayMode = "name-all" | "click-country";
+type CountryGuessPlayMode = "name-all" | "click-country" | "puzzle";
 type CountryGuessTimerMode = "off" | "count-up";
 
 interface WorldMapModeOption {
@@ -38,6 +40,11 @@ const WORLD_MAP_MODE_OPTIONS: readonly WorldMapModeOption[] = [
     label: "Click on the country",
     description: "A random country name appears; click the matching country on the map.",
   },
+  {
+    id: "puzzle",
+    label: "Puzzle",
+    description: "Choose a continent, then drag country cutouts into the matching outline.",
+  },
 ];
 
 const COUNTRY_GUESS_TIMER_KEYS: Record<CountryGuessPlayMode, { readonly last: string; readonly best: string }> = {
@@ -48,6 +55,10 @@ const COUNTRY_GUESS_TIMER_KEYS: Record<CountryGuessPlayMode, { readonly last: st
   "click-country": {
     last: "locato:country-guessing:click-country:timer-last-ms:v1",
     best: "locato:country-guessing:click-country:timer-best-ms:v1",
+  },
+  puzzle: {
+    last: "locato:country-guessing:puzzle:timer-last-ms:v1",
+    best: "locato:country-guessing:puzzle:timer-best-ms:v1",
   },
 };
 
@@ -143,9 +154,9 @@ function createWorldMapModeDropdown(options: {
     children: [
       el("summary", {
         className: "category-dropdown-summary",
-        children: [el("span", { className: "category-row-label", text: "Categories" }), selectedText],
+        children: [el("span", { className: "category-row-label", text: "Mode" }), selectedText],
       }),
-      el("div", { className: "category-dropdown-menu", attrs: { role: "radiogroup", "aria-label": "World map categories" }, children: modeControls.map((control) => control.label) }),
+      el("div", { className: "category-dropdown-menu", attrs: { role: "radiogroup", "aria-label": "World map modes" }, children: modeControls.map((control) => control.label) }),
     ],
   });
   setSelectedMode(selectedMode);
@@ -166,8 +177,12 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   let lastTimerMs = readStoredTime(options.storage, COUNTRY_GUESS_TIMER_KEYS[playMode].last);
   let bestTimerMs = readStoredTime(options.storage, COUNTRY_GUESS_TIMER_KEYS[playMode].best);
   let targetCountryId: CountryId | null = null;
+  let puzzleContinent: Continent = "Africa";
+  let puzzlePlacedCount = 0;
+  let puzzleTotalCount = countryIndex.countries.filter((country) => country.continent === puzzleContinent).length;
 
   function complete(): boolean {
+    if (playMode === "puzzle") return puzzleTotalCount > 0 && puzzlePlacedCount >= puzzleTotalCount;
     return guessedCountryIds.size >= countryIndex.countries.length;
   }
 
@@ -243,32 +258,46 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     const finished = complete();
     const targetCountry = getTargetCountry();
     clickPrompt.hidden = playMode !== "click-country";
+    puzzlePrompt.hidden = playMode !== "puzzle";
     targetCountryName.textContent = finished ? "Complete" : targetCountry?.name ?? "—";
   }
 
   function render(): void {
     updateWorldMapView(map, guessedCountryIds, countryIndex.countries.length);
+    updateAtlasView(atlas, countryIndex.countries, guessedCountryIds);
     const finished = complete();
     const namingModeActive = playMode === "name-all";
-    panelHeading.textContent = namingModeActive ? "Name every country" : "Click the country";
+    const puzzleModeActive = playMode === "puzzle";
+    map.element.hidden = puzzleModeActive;
+    puzzle.element.hidden = !puzzleModeActive;
+    panelHeading.textContent = puzzleModeActive ? "Puzzle the continent" : namingModeActive ? "Name every country" : "Click the country";
     form.hidden = !namingModeActive;
     input.disabled = finished || !namingModeActive;
     submitButton.disabled = finished || !namingModeActive;
-    foundCount.textContent = String(guessedCountryIds.size);
-    remainingCount.textContent = String(Math.max(0, countryIndex.countries.length - guessedCountryIds.size));
+    foundLabel.textContent = puzzleModeActive ? "Placed" : "Found";
+    foundCount.textContent = String(puzzleModeActive ? puzzlePlacedCount : guessedCountryIds.size);
+    remainingCount.textContent = String(puzzleModeActive ? Math.max(0, puzzleTotalCount - puzzlePlacedCount) : Math.max(0, countryIndex.countries.length - guessedCountryIds.size));
+    showMissingButton.hidden = puzzleModeActive;
     showMissingButton.textContent = showMissingCountries ? "Hide missing" : "Show missing";
     showMissingButton.setAttribute("aria-pressed", String(showMissingCountries));
-    setWorldMapMissingMarkersVisible(map, showMissingCountries);
+    setWorldMapMissingMarkersVisible(map, showMissingCountries && !puzzleModeActive);
     map.element.classList.toggle("is-click-country-mode", playMode === "click-country" && !finished);
     renderTargetPrompt();
     renderTimer();
   }
 
   function resetGame(feedbackMessage: string): void {
+    setAtlasOpen(atlas, false);
     guessedCountryIds.clear();
     input.value = "";
     lastCountryName.textContent = "None";
     targetCountryId = playMode === "click-country" ? chooseNextTargetCountryId() : null;
+    if (playMode === "puzzle") {
+      puzzle.reset();
+      const initialPuzzleState = puzzle.getState();
+  puzzlePlacedCount = initialPuzzleState.placedCount;
+  puzzleTotalCount = initialPuzzleState.totalCount;
+    }
     resetTimer();
     render();
     showFeedback(feedback, feedbackMessage, "neutral");
@@ -346,6 +375,32 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     recordGuess(clickedCountry);
   }
 
+
+  function handlePuzzleProgress(progress: PuzzleMapProgress): void {
+    puzzlePlacedCount = progress.placedCount;
+    puzzleTotalCount = progress.totalCount;
+    if (progress.lastCountry) lastCountryName.textContent = progress.lastCountry.name;
+    render();
+  }
+
+  function handlePuzzleComplete(progress: PuzzleMapProgress): void {
+    handlePuzzleProgress(progress);
+
+    if (timerMode === "count-up") {
+      const finalTimeMs = stopTimer();
+      const isNewBest = updateStoredTimerTimesForCurrentMode(finalTimeMs);
+      renderTimer();
+      showFeedback(
+        feedback,
+        `${puzzleContinent} complete. All ${progress.totalCount} countries placed in ${formatElapsedTime(finalTimeMs)}${isNewBest ? " — new best time." : "."}`,
+        "good",
+      );
+      return;
+    }
+
+    showFeedback(feedback, `${puzzleContinent} complete. All ${progress.totalCount} countries snapped into place.`, "good");
+  }
+
   function setPlayMode(nextMode: CountryGuessPlayMode): void {
     if (playMode === nextMode) return;
     playMode = nextMode;
@@ -355,11 +410,14 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     resetGame(
       playMode === "click-country"
         ? "Click mode ready. Click the named country on the map; the timer starts on your first correct country."
-        : "Name all countries mode ready. Start typing country names to reveal the map.",
+        : playMode === "puzzle"
+          ? `Puzzle mode ready. Choose a continent, then drag each cutout into ${puzzleContinent}.`
+          : "Name all countries mode ready. Start typing country names to reveal the map.",
     );
   }
 
   const map = createWorldMapView(options.worldCountryFeatures, countryIndex, { onCountryClick: handleCountryClick });
+  const atlas = createAtlasView(countryIndex.countries);
   const feedback = createFeedbackView();
   const input = el("input", {
     attrs: { id: "guess-input", name: "guess", type: "text", autocomplete: "off", autocapitalize: "words", spellcheck: "false", placeholder: "e.g. Brazil, Japan, ZA..." },
@@ -374,6 +432,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
       el("option", { text: "Timer", attrs: { value: "count-up" } }),
     ],
   });
+  const foundLabel = el("span", { className: "stat-label", text: "Found" });
   const foundCount = el("strong", { className: "stat-value", text: "0" });
   const remainingCount = el("strong", { className: "stat-value", text: String(countryIndex.countries.length) });
   const lastCountryName = el("strong", { className: "stat-value", text: "None" });
@@ -390,6 +449,20 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
       el("p", { text: "Pan, zoom, then click the matching country shape." }),
     ],
   });
+  const puzzleContinentSelect = el("select", {
+    className: "puzzle-continent-select",
+    attrs: { id: "puzzle-continent", name: "puzzleContinent", "aria-label": "Puzzle continent" },
+    children: CONTINENTS.map((continent) => el("option", { text: continent, attrs: { value: continent } })),
+  });
+  puzzleContinentSelect.value = puzzleContinent;
+  const puzzlePrompt = el("div", {
+    className: "country-click-prompt puzzle-prompt",
+    children: [
+      el("label", { className: "country-click-target-label", text: "Puzzle continent", attrs: { for: "puzzle-continent" } }),
+      puzzleContinentSelect,
+      el("p", { text: "Drag country cutouts from the tray into the continent outline. Close drops snap into place." }),
+    ],
+  });
   const timerModeCard = el("div", {
     className: "stat-card country-guess-mode-card",
     children: [el("label", { className: "stat-label", text: "Mode", attrs: { for: "country-timer-mode" } }), timerModeSelect],
@@ -398,7 +471,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     className: "stats-panel country-guess-stats",
     children: [
       timerModeCard,
-      el("div", { className: "stat-card", children: [el("span", { className: "stat-label", text: "Found" }), foundCount] }),
+      el("div", { className: "stat-card", children: [foundLabel, foundCount] }),
       el("div", { className: "stat-card", children: [el("span", { className: "stat-label", text: "Remaining" }), remainingCount] }),
       el("div", { className: "stat-card", children: [el("span", { className: "stat-label", text: "Last" }), lastCountryName] }),
       el("div", { className: "stat-card", children: [el("span", { className: "stat-label", text: "Time" }), timerElapsed] }),
@@ -410,6 +483,18 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   const soloButton = el("button", { className: "ghost-action", text: "Prompt game", attrs: { type: "button" } });
   const multiplayerButton = el("button", { className: "ghost-action", text: "Multiplayer", attrs: { type: "button" } });
   const modeDropdown = createWorldMapModeDropdown({ selectedMode: playMode, signal: controller.signal, onChange: setPlayMode });
+  const puzzle = createPuzzleMapView(options.worldCountryFeatures, countryIndex, puzzleContinent, {
+    signal: controller.signal,
+    onFirstPlacement: startTimerIfNeeded,
+    onProgress: (progress) => {
+      handlePuzzleProgress(progress);
+      if (playMode === "puzzle" && progress.lastCountry && !progress.complete) showFeedback(feedback, `${progress.lastCountry.name} snapped into place.`, "good");
+    },
+    onComplete: handlePuzzleComplete,
+  });
+  const initialPuzzleState = puzzle.getState();
+  puzzlePlacedCount = initialPuzzleState.placedCount;
+  puzzleTotalCount = initialPuzzleState.totalCount;
 
   const form = el("form", {
     className: "guess-form country-guess-form",
@@ -433,6 +518,20 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     },
     { signal: controller.signal },
   );
+
+  puzzleContinentSelect.addEventListener(
+    "change",
+    () => {
+      const nextContinent = CONTINENTS.find((continent) => continent === puzzleContinentSelect.value) ?? "Africa";
+      puzzleContinent = nextContinent;
+      puzzle.setContinent(puzzleContinent);
+      handlePuzzleProgress(puzzle.getState());
+      resetTimer();
+      render();
+      showFeedback(feedback, `${puzzleContinent} puzzle loaded. Drag each country cutout into its outline.`, "neutral");
+    },
+    { signal: controller.signal },
+  );
   timerModeSelect.addEventListener(
     "change",
     () => {
@@ -444,12 +543,23 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   resetButton.addEventListener(
     "click",
     () => {
-      resetGame(timerMode === "count-up" ? "Timer reset. Start with your first correct country." : playMode === "click-country" ? "Fresh click challenge ready." : "Fresh world map ready.");
+      resetGame(
+        timerMode === "count-up"
+          ? "Timer reset. Start with your first correct move."
+          : playMode === "click-country"
+            ? "Fresh click challenge ready."
+            : playMode === "puzzle"
+              ? `Fresh ${puzzleContinent} puzzle ready.`
+              : "Fresh world map ready.",
+      );
     },
     { signal: controller.signal },
   );
   soloButton.addEventListener("click", options.onBackToSolo, { signal: controller.signal });
   multiplayerButton.addEventListener("click", options.onMultiplayer, { signal: controller.signal });
+  atlas.openButton.addEventListener("click", () => setAtlasOpen(atlas, true), { signal: controller.signal });
+  atlas.closeButton.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
+  atlas.overlay.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
 
   const element = el("section", {
     className: "game-screen country-guess-screen",
@@ -468,15 +578,17 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
         className: "country-guess-layout",
         children: [
           map.element,
+          puzzle.element,
           el("aside", {
             className: "answer-panel country-guess-panel",
             children: [
               el("div", { className: "panel-title", children: [panelHeading] }),
               clickPrompt,
+              puzzlePrompt,
               form,
               statsPanel,
               feedback.element,
-              el("div", { className: "actions", children: [showMissingButton, resetButton] }),
+              el("div", { className: "actions", children: [showMissingButton, resetButton, atlas.element] }),
             ],
           }),
         ],
@@ -492,6 +604,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     element,
     destroy: () => {
       clearTimerInterval();
+      puzzle.destroy();
       controller.abort();
     },
   };
