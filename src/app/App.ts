@@ -5,6 +5,7 @@ import { clearSoloSave, hydrateGameState, readSoloSave, saveSoloGame } from "../
 import { createWebSocketMultiplayerTransport, resolveDefaultWebSocketUrl, type MultiplayerTransport } from "../core/multiplayer";
 import { loadWorldCountryFeatures, type WorldCountryFeature } from "../core/map";
 import { createCountryGuessingScreen } from "../ui/screens/CountryGuessingScreen";
+import { createAuthControls } from "../ui/components/AuthPanel";
 import { createSoloGameScreen } from "../ui/screens/SoloGameScreen";
 import { createMultiplayerLobbyScreen } from "../ui/screens/MultiplayerLobbyScreen";
 import type { AppRoute, Screen } from "./router";
@@ -37,10 +38,20 @@ export function createApp(options: AppOptions): App {
   let activeScreen: Screen | null = null;
   let navigationRun = 0;
 
+  // Account controls persist across navigation and are fixed to the top-right of the viewport.
+  const authControls = createAuthControls({ onAuthChange: () => undefined });
+
+  function attachGlobalControls(): void {
+    options.root.append(authControls.trigger, authControls.panel);
+  }
+
+  attachGlobalControls();
+
   function mount(screen: Screen): void {
     activeScreen?.destroy();
     activeScreen = screen;
     options.root.replaceChildren(screen.element);
+    attachGlobalControls();
   }
 
   function startSolo(categoryIds: readonly string[], continueSaved = false): void {
@@ -136,6 +147,7 @@ export function createApp(options: AppOptions): App {
           const save = readSoloSave(options.storage);
           startSolo(save?.categoryIds ?? DEFAULT_CATEGORY_IDS, save !== null);
         },
+        authControls,
       }),
     );
   }

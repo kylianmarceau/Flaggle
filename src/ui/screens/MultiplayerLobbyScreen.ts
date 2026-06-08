@@ -4,6 +4,9 @@ import { multiplayerPromptCategories } from "../../core/categories";
 import type { CountryIndex } from "../../core/countries";
 import type { WorldCountryFeature } from "../../core/map";
 import type { Screen } from "../../app/router";
+import type { AuthControls } from "../components/AuthPanel";
+import { getPlayerEmoji } from "../../core/auth/avatars";
+import { recordGame } from "../../core/auth";
 import { createCategoryDropdown } from "../dom/categoryDropdown";
 import { el } from "../dom/createElement";
 import { createMultiplayerGameView } from "./MultiplayerGameScreen";
@@ -14,6 +17,7 @@ export interface MultiplayerLobbyScreenOptions {
   readonly worldCountryFeatures: readonly WorldCountryFeature[];
   readonly createOnlineTransport: () => MultiplayerTransport;
   readonly onBackToSolo: () => void;
+  readonly authControls?: AuthControls;
 }
 
 // Ephemeral reconnect credentials. Kept in sessionStorage so a page reload or a dropped socket
@@ -75,15 +79,17 @@ function allConnectedPlayersReady(room: PublicRoomState): boolean {
 }
 
 function createPlayerRows(room: PublicRoomState, localPlayerId: string | null): readonly HTMLElement[] {
-  return room.players.map((player) =>
-    el("li", {
+  return room.players.map((player) => {
+    const emoji = getPlayerEmoji(player.id, player.id === localPlayerId);
+    return el("li", {
       className: player.id === localPlayerId ? "player-row is-local" : "player-row",
       children: [
+        el("span", { className: "player-emoji", text: emoji, attrs: { "aria-hidden": "true" } }),
         el("span", { className: "player-name", text: `${player.name}${player.id === room.hostPlayerId ? " · host" : ""}` }),
         el("span", { className: player.connected ? "player-status" : "player-status offline", text: player.connected ? (player.ready ? "ready" : "not ready") : "offline" }),
       ],
-    }),
-  );
+    });
+  });
 }
 
 function safeConnect(transport: MultiplayerTransport, afterConnect: () => void, onError: (message: string) => void): void {
@@ -257,10 +263,19 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
         feedback = winner ? `${message.answer} — ${winner.name} took it.` : `${message.answer} — nobody got it.`;
         break;
       }
-      case "GAME_COMPLETED":
+      case "GAME_COMPLETED": {
         finalResults = message.results;
         feedback = "Game complete.";
+        // Record this player's stats to their account if they're signed in.
+        // The server has already validated the results; we just forward our own row.
+        const myResult = message.results.find((result) => result.playerId === localPlayerId);
+        if (myResult) {
+          void recordGame({ correctAnswers: myResult.correctAnswers, wrongAnswers: myResult.wrongAnswers, bestStreak: 0 }).then((stats) => {
+            if (stats) options.authControls?.refreshStats(stats);
+          });
+        }
         break;
+      }
       case "PLAYER_JOINED":
         feedback = `${message.player.name} joined.`;
         break;
