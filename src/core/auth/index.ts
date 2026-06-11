@@ -1,4 +1,4 @@
-// Client-side auth module. Talks to the server's /auth/* and /api/games endpoints via fetch.
+// Client-side auth module. Talks to the server's /auth/* and /api/* endpoints via fetch.
 // No cookies are accessed from JS — they are HttpOnly and sent automatically by the browser.
 
 export interface AuthUser {
@@ -11,10 +11,52 @@ export interface AuthUser {
 }
 
 export interface UserStats {
-  readonly games: number;
+  readonly totalGames: number;
+  readonly totalCorrect: number;
+  readonly totalWrong: number;
+  readonly bestStreak: number;
+  readonly soloGames: number;
+  readonly soloCorrect: number;
+  readonly soloWrong: number;
+  readonly soloBestStreak: number;
+  readonly multiplayerGames: number;
+  readonly multiplayerWins: number;
+  readonly multiplayerCorrect: number;
+  readonly multiplayerWrong: number;
+  readonly multiplayerBestStreak: number;
+  readonly worldMapGames: number;
+  readonly worldMapCompletions: number;
+  readonly worldBestTimeMs: number;
+  readonly worldBestCountries: number;
+}
+
+export interface CategoryStats {
+  readonly categoryId: string;
+  readonly correct: number;
+  readonly wrong: number;
+}
+
+export interface GameRecord {
+  readonly id: string;
+  readonly mode: "solo" | "multiplayer" | "world-map";
+  readonly categoryIds: readonly string[];
   readonly correctAnswers: number;
   readonly wrongAnswers: number;
+  readonly score: number;
   readonly bestStreak: number;
+  readonly rank: number | null;
+  readonly totalPlayers: number | null;
+  readonly playedAt: number;
+  readonly durationMs: number | null;
+  readonly completed: boolean | null;
+  readonly countriesFound: number | null;
+  readonly countriesTotal: number | null;
+  readonly playMode: string | null;
+}
+
+export interface FullStats extends UserStats {
+  readonly categories: readonly CategoryStats[];
+  readonly recentGames: readonly GameRecord[];
 }
 
 export interface AuthState {
@@ -23,9 +65,44 @@ export interface AuthState {
 }
 
 export interface GameResult {
+  readonly mode: "solo" | "multiplayer" | "world-map";
+  readonly categoryIds: readonly string[];
   readonly correctAnswers: number;
   readonly wrongAnswers: number;
+  readonly score: number;
   readonly bestStreak: number;
+  readonly rank?: number;
+  readonly totalPlayers?: number;
+  readonly durationMs?: number;
+  readonly completed?: boolean;
+  readonly countriesFound?: number;
+  readonly countriesTotal?: number;
+  readonly playMode?: string;
+}
+
+export interface LeaderboardEntry {
+  readonly rank: number;
+  readonly userId: string;
+  readonly displayName: string;
+  readonly avatarEmoji: string | null;
+  readonly timeMs: number;
+  readonly achievedAt: number;
+}
+
+export interface LeaderboardResponse {
+  readonly entries: readonly LeaderboardEntry[];
+  readonly currentUser: { readonly rank: number; readonly timeMs: number } | null;
+}
+
+export interface SubmitBestTimeInput {
+  readonly gameMode: string;
+  readonly variant?: string;
+  readonly timeMs: number;
+}
+
+export interface SubmitBestTimeResponse {
+  readonly accepted: boolean;
+  readonly isPersonalBest: boolean;
 }
 
 async function postJson(path: string, body: unknown): Promise<Response> {
@@ -40,6 +117,16 @@ export async function fetchAuthState(): Promise<AuthState> {
     return { user: data.user, stats: data.stats };
   } catch {
     return { user: null, stats: null };
+  }
+}
+
+export async function fetchFullStats(): Promise<FullStats | null> {
+  try {
+    const response = await fetch("/api/stats");
+    if (!response.ok) return null;
+    return (await response.json()) as FullStats;
+  } catch {
+    return null;
   }
 }
 
@@ -65,6 +152,27 @@ export function signInWithGoogle(): void {
 
 export async function signOut(): Promise<void> {
   await postJson("/auth/logout", {});
+}
+
+export async function fetchLeaderboard(mode: string, variant = "", limit = 50): Promise<LeaderboardResponse | null> {
+  try {
+    const params = new URLSearchParams({ mode, variant, limit: String(limit) });
+    const response = await fetch(`/api/leaderboard?${params.toString()}`);
+    if (!response.ok) return null;
+    return (await response.json()) as LeaderboardResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function submitBestTime(input: SubmitBestTimeInput): Promise<SubmitBestTimeResponse | null> {
+  try {
+    const response = await postJson("/api/leaderboard", input);
+    if (!response.ok) return null;
+    return (await response.json()) as SubmitBestTimeResponse;
+  } catch {
+    return null;
+  }
 }
 
 export async function recordGame(result: GameResult): Promise<UserStats | null> {

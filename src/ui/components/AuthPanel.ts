@@ -16,6 +16,7 @@ function svgIcon(svgMarkup: string): HTMLElement {
 
 export interface AuthPanelOptions {
   readonly onAuthChange: (state: AuthState) => void;
+  readonly onViewStats?: () => void;
 }
 
 export interface AuthControls {
@@ -25,6 +26,8 @@ export interface AuthControls {
   readonly panel: HTMLElement;
   // Call after a multiplayer game completes so the panel stats refreshes.
   readonly refreshStats: (stats: UserStats) => void;
+  readonly getUser: () => AuthState["user"];
+  readonly openPanel: () => void;
   readonly destroy: () => void;
 }
 
@@ -102,6 +105,7 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
   const gamesValue = el("strong", { text: "0" });
   const correctValue = el("strong", { text: "0" });
   const streakValue = el("strong", { text: "0" });
+  const viewStatsButton = el("button", { className: "secondary-action auth-view-stats", text: "View full stats →", attrs: { type: "button" } });
   const signOutButton = el("button", { className: "ghost-action auth-sign-out", text: "Sign out", attrs: { type: "button" } });
 
   const avatarPicker = el("div", { className: "avatar-picker", attrs: { role: "group", "aria-label": "Choose avatar", hidden: "true" } });
@@ -128,6 +132,7 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
           el("span", { children: [streakValue, el("small", { text: "best streak" })] }),
         ],
       }),
+      viewStatsButton,
       signOutButton,
     ],
   });
@@ -237,8 +242,8 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
     updatePickerSelection(getStoredAvatar());
     accountNameEl.textContent = state.user.displayName;
     accountEmailEl.textContent = state.user.email;
-    gamesValue.textContent = statText(state.stats, "games");
-    correctValue.textContent = statText(state.stats, "correctAnswers");
+    gamesValue.textContent = statText(state.stats, "totalGames");
+    correctValue.textContent = statText(state.stats, "totalCorrect");
     streakValue.textContent = statText(state.stats, "bestStreak");
   }
 
@@ -370,6 +375,15 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
     { signal: controller.signal },
   );
 
+  viewStatsButton.addEventListener(
+    "click",
+    () => {
+      closePanel();
+      options.onViewStats?.();
+    },
+    { signal: controller.signal },
+  );
+
   setMode("login");
   void fetchAuthState().then((state) => applyState(state));
 
@@ -380,6 +394,8 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
       currentState = { ...currentState, stats };
       if (currentState.user) renderAccount(currentState);
     },
+    getUser: () => currentState.user,
+    openPanel: () => openPanel(),
     destroy: () => controller.abort(),
   };
 }
