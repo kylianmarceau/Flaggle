@@ -8,8 +8,11 @@ import type {
   CategoryStats,
   CreateSessionInput,
   CreateUserInput,
+  FriendRequestLists,
   FullStats,
   GameRecord,
+  PublicUser,
+  SendFriendRequestResult,
   GameResult,
   LeaderboardEntry,
   LeaderboardQuery,
@@ -122,6 +125,18 @@ function migrate(db: Database): void {
 
     CREATE INDEX IF NOT EXISTS mode_best_times_rank
       ON mode_best_times (game_mode, variant, best_time_ms ASC, achieved_at ASC);
+
+    CREATE TABLE IF NOT EXISTS friendships (
+      user_low TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_high TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      requested_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_low, user_high),
+      CHECK (user_low < user_high)
+    );
+    CREATE INDEX IF NOT EXISTS friendships_user_high ON friendships(user_high);
   `);
 
   // Additive migrations: columns added after initial schema deployment.
@@ -143,6 +158,15 @@ function migrate(db: Database): void {
   try {
     db.exec("UPDATE user_stats SET total_games = games, total_correct = correct_answers, total_wrong = wrong_answers, best_streak = MAX(best_streak, best_streak) WHERE total_games = 0 AND games > 0;");
   } catch { /* columns don't exist — fresh install, nothing to migrate */ }
+
+  // Usernames (display_name) must be unique. Defensively de-duplicate any pre-existing
+  // collisions (case-insensitive) before adding the unique index, so the index creation
+  // can't fail on legacy data. Fresh installs have no rows, so this is a no-op there.
+  try {
+    db.exec(`UPDATE users SET display_name = display_name || '-' || substr(id, 1, 4)
+             WHERE id NOT IN (SELECT MIN(id) FROM users GROUP BY lower(display_name));`);
+  } catch { /* nothing to dedupe */ }
+  addIfMissing("CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users(display_name COLLATE NOCASE);");
 }
 
 const USER_SELECT = "SELECT id, email, display_name AS displayName, password_hash AS passwordHash, avatar_url AS avatarUrl, avatar_emoji AS avatarEmoji, created_at AS createdAt FROM users";
@@ -176,6 +200,10 @@ export class SqliteUserStore implements UserStore {
 
   findUserByEmail(email: string): StoredUser | null {
     return this.db.query<StoredUser>(`${USER_SELECT} WHERE email = ?`).get(email);
+  }
+
+  findUserByUsername(username: string): StoredUser | null {
+    return this.db.query<StoredUser>(`${USER_SELECT} WHERE display_name = ? COLLATE NOCASE`).get(username);
   }
 
   findUserById(id: string): StoredUser | null {
@@ -411,5 +439,84 @@ export class SqliteUserStore implements UserStore {
     const count = this.db.query<{ n: number }>("SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?").get(userId)?.n ?? 0;
     this.db.query("DELETE FROM sessions WHERE user_id = ?").run(userId);
     return count;
+  }
+
+  sendFriendRequest(requesterId: string, addresseeId: string, now: number): SendFriendRequestResult {
+    if (requesterId === addresseeId) return "self";
+    if (!this.findUserById(addresseeId)) return "not-found";
+    const [low, high] = requesterId < addresseeId ? [requesterId, addresseeId] : [addresseeId, requesterId];
+    const existing = this.db.query<{ status: string; requestedBy: string }>("SELECT status, requested_by AS requestedBy FROM friendships WHERE user_low = ? AND user_high = ?").get(low, high);
+    if (existing) {
+      if (existing.status === "accepted" || existing.requestedBy === requesterId) return "exists";
+      // The other person already requested us → accept (mutual).
+      this.db.query("UPDATE friendships SET status = 'accepted', updated_at = ? WHERE user_low = ? AND user_high = ?").run(now, low, high);
+      return "accepted";
+    }
+    this.db.query("INSERT INTO friendships (user_low, user_high, status, requested_by, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, ?)").run(low, high, requesterId, now, now);
+    return "requested";
+  }
+
+  acceptFriendRequest(userId: string, requesterId: string, now: number): boolean {
+    const [low, high] = userId < requesterId ? [userId, requesterId] : [requesterId, userId];
+    const row = this.db.query<{ status: string; requestedBy: string }>("SELECT status, requested_by AS requestedBy FROM friendships WHERE user_low = ? AND user_high = ?").get(low, high);
+    if (!row || row.status !== "pending" || row.requestedBy !== requesterId) return false;
+    this.db.query("UPDATE friendships SET status = 'accepted', updated_at = ? WHERE user_low = ? AND user_high = ?").run(now, low, high);
+    return true;
+  }
+
+  removeFriendship(userId: string, otherId: string): boolean {
+    const [low, high] = userId < otherId ? [userId, otherId] : [otherId, userId];
+    if (!this.db.query("SELECT 1 FROM friendships WHERE user_low = ? AND user_high = ?").get(low, high)) return false;
+    this.db.query("DELETE FROM friendships WHERE user_low = ? AND user_high = ?").run(low, high);
+    return true;
+  }
+
+  listFriends(userId: string): readonly PublicUser[] {
+    return this.db.query<PublicUser>(
+      `SELECT u.id, u.display_name AS username, u.avatar_emoji AS avatarEmoji
+       FROM friendships f
+       JOIN users u ON u.id = CASE WHEN f.user_low = ? THEN f.user_high ELSE f.user_low END
+       WHERE (f.user_low = ? OR f.user_high = ?) AND f.status = 'accepted'
+       ORDER BY u.display_name COLLATE NOCASE`,
+    ).all(userId, userId, userId);
+  }
+
+  listFriendRequests(userId: string): FriendRequestLists {
+    type Row = { id: string; username: string; avatarEmoji: string | null; createdAt: number };
+    const toEntry = (r: Row) => ({ user: { id: r.id, username: r.username, avatarEmoji: r.avatarEmoji }, createdAt: r.createdAt });
+    const incoming = this.db.query<Row>(
+      `SELECT u.id, u.display_name AS username, u.avatar_emoji AS avatarEmoji, f.created_at AS createdAt
+       FROM friendships f JOIN users u ON u.id = f.requested_by
+       WHERE (f.user_low = ? OR f.user_high = ?) AND f.status = 'pending' AND f.requested_by != ?
+       ORDER BY f.created_at DESC`,
+    ).all(userId, userId, userId);
+    const outgoing = this.db.query<Row>(
+      `SELECT u.id, u.display_name AS username, u.avatar_emoji AS avatarEmoji, f.created_at AS createdAt
+       FROM friendships f JOIN users u ON u.id = CASE WHEN f.user_low = ? THEN f.user_high ELSE f.user_low END
+       WHERE f.status = 'pending' AND f.requested_by = ?
+       ORDER BY f.created_at DESC`,
+    ).all(userId, userId);
+    return { incoming: incoming.map(toEntry), outgoing: outgoing.map(toEntry) };
+  }
+
+  areFriends(a: string, b: string): boolean {
+    const [low, high] = a < b ? [a, b] : [b, a];
+    const row = this.db.query<{ status: string }>("SELECT status FROM friendships WHERE user_low = ? AND user_high = ?").get(low, high);
+    return row?.status === "accepted";
+  }
+
+  friendIds(userId: string): readonly string[] {
+    return this.db.query<{ id: string }>(
+      `SELECT CASE WHEN user_low = ? THEN user_high ELSE user_low END AS id
+       FROM friendships WHERE (user_low = ? OR user_high = ?) AND status = 'accepted'`,
+    ).all(userId, userId, userId).map((r) => r.id);
+  }
+
+  searchUsers(query: string, excludeId: string, limit: number): readonly PublicUser[] {
+    return this.db.query<PublicUser>(
+      `SELECT id, display_name AS username, avatar_emoji AS avatarEmoji FROM users
+       WHERE display_name LIKE ? COLLATE NOCASE AND id != ?
+       ORDER BY display_name COLLATE NOCASE LIMIT ?`,
+    ).all(`%${query}%`, excludeId, limit);
   }
 }

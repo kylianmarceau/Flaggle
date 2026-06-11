@@ -4,8 +4,11 @@ import type {
   CategoryStats,
   CreateSessionInput,
   CreateUserInput,
+  FriendRequestLists,
   FullStats,
   GameRecord,
+  PublicUser,
+  SendFriendRequestResult,
   GameResult,
   LeaderboardEntry,
   LeaderboardQuery,
@@ -30,8 +33,20 @@ export function createMemoryUserStore(): UserStore {
   const gameRecords = new Map<string, GameRecord[]>();
   const bestTimes = new Map<string, { userId: string; gameMode: string; variant: string; timeMs: number; achievedAt: number }>();
 
+  // Friendships keyed by canonical "low|high" pair (low < high by id string).
+  const friendships = new Map<string, { low: string; high: string; status: "pending" | "accepted"; requestedBy: string; createdAt: number }>();
+
   function bestTimeKey(userId: string, gameMode: string, variant: string): string {
     return `${userId}:${gameMode}:${variant}`;
+  }
+
+  function pairKey(a: string, b: string): string {
+    return a < b ? `${a}|${b}` : `${b}|${a}`;
+  }
+
+  function publicUser(id: string): PublicUser | null {
+    const u = usersById.get(id);
+    return u ? { id: u.id, username: u.displayName, avatarEmoji: u.avatarEmoji } : null;
   }
 
   return {
@@ -42,6 +57,7 @@ export function createMemoryUserStore(): UserStore {
       return user;
     },
     findUserByEmail: (email) => usersByEmail.get(email) ?? null,
+    findUserByUsername: (username) => [...usersById.values()].find((u) => u.displayName.toLowerCase() === username.toLowerCase()) ?? null,
     findUserById: (id) => usersById.get(id) ?? null,
     findUserByOAuth: (provider, providerId) => usersByOAuth.get(`${provider}:${providerId}`) ?? null,
     linkOAuthAccount(userId, provider, providerId) {
@@ -195,6 +211,7 @@ export function createMemoryUserStore(): UserStore {
       stats.delete(id);
       categoryStats.delete(id);
       gameRecords.delete(id);
+      for (const [key, f] of friendships) if (f.low === id || f.high === id) friendships.delete(key);
       return true;
     },
     deleteUserSessions(userId: string): number {
@@ -206,6 +223,78 @@ export function createMemoryUserStore(): UserStore {
         }
       }
       return removed;
+    },
+    sendFriendRequest(requesterId: string, addresseeId: string, now: number): SendFriendRequestResult {
+      if (requesterId === addresseeId) return "self";
+      if (!usersById.has(addresseeId)) return "not-found";
+      const key = pairKey(requesterId, addresseeId);
+      const existing = friendships.get(key);
+      if (existing) {
+        if (existing.status === "accepted" || existing.requestedBy === requesterId) return "exists";
+        existing.status = "accepted";
+        return "accepted";
+      }
+      const [low, high] = requesterId < addresseeId ? [requesterId, addresseeId] : [addresseeId, requesterId];
+      friendships.set(key, { low, high, status: "pending", requestedBy: requesterId, createdAt: now });
+      return "requested";
+    },
+    acceptFriendRequest(userId: string, requesterId: string): boolean {
+      const existing = friendships.get(pairKey(userId, requesterId));
+      if (!existing || existing.status !== "pending" || existing.requestedBy !== requesterId) return false;
+      existing.status = "accepted";
+      return true;
+    },
+    removeFriendship(userId: string, otherId: string): boolean {
+      return friendships.delete(pairKey(userId, otherId));
+    },
+    listFriends(userId: string): readonly PublicUser[] {
+      const out: PublicUser[] = [];
+      for (const f of friendships.values()) {
+        if (f.status !== "accepted") continue;
+        const otherId = f.low === userId ? f.high : f.high === userId ? f.low : null;
+        if (!otherId) continue;
+        const pu = publicUser(otherId);
+        if (pu) out.push(pu);
+      }
+      return out.sort((a, b) => a.username.toLowerCase().localeCompare(b.username.toLowerCase()));
+    },
+    listFriendRequests(userId: string): FriendRequestLists {
+      const incoming: { user: PublicUser; createdAt: number }[] = [];
+      const outgoing: { user: PublicUser; createdAt: number }[] = [];
+      for (const f of friendships.values()) {
+        if (f.status !== "pending") continue;
+        const isMember = f.low === userId || f.high === userId;
+        if (!isMember) continue;
+        if (f.requestedBy === userId) {
+          const other = publicUser(f.low === userId ? f.high : f.low);
+          if (other) outgoing.push({ user: other, createdAt: f.createdAt });
+        } else {
+          const other = publicUser(f.requestedBy);
+          if (other) incoming.push({ user: other, createdAt: f.createdAt });
+        }
+      }
+      const byNewest = (a: { createdAt: number }, b: { createdAt: number }) => b.createdAt - a.createdAt;
+      return { incoming: incoming.sort(byNewest), outgoing: outgoing.sort(byNewest) };
+    },
+    areFriends(a: string, b: string): boolean {
+      return friendships.get(pairKey(a, b))?.status === "accepted";
+    },
+    friendIds(userId: string): readonly string[] {
+      const ids: string[] = [];
+      for (const f of friendships.values()) {
+        if (f.status !== "accepted") continue;
+        if (f.low === userId) ids.push(f.high);
+        else if (f.high === userId) ids.push(f.low);
+      }
+      return ids;
+    },
+    searchUsers(query: string, excludeId: string, limit: number): readonly PublicUser[] {
+      const needle = query.toLowerCase();
+      return [...usersById.values()]
+        .filter((u) => u.id !== excludeId && u.displayName.toLowerCase().includes(needle))
+        .sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()))
+        .slice(0, limit)
+        .map((u) => ({ id: u.id, username: u.displayName, avatarEmoji: u.avatarEmoji }));
     },
   };
 }

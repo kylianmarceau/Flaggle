@@ -2,9 +2,14 @@ import type { AuthService } from "./AuthService";
 import { readSessionToken, serializeClearCookie, serializeSessionCookie, type CookieOptions } from "./cookies";
 import { buildAuthUrl, consumeOAuthState, exchangeOAuthCode, saveOAuthState } from "./oauth";
 import { createOAuthState } from "./tokens";
-import type { GameResult } from "./types";
+import { NOOP_SOCIAL, type SocialBridge } from "../../src/core/social/socialProtocol";
+import type { AuthUser, GameResult } from "./types";
 
 const MAX_STAT_VALUE = 1_000_000;
+
+function publicRef(user: AuthUser) {
+  return { id: user.id, username: user.displayName, avatarEmoji: user.avatarEmoji };
+}
 
 function ip(request: Request): string {
   return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
@@ -86,7 +91,7 @@ function parseGameResult(body: Record<string, unknown>): GameResult | null {
 
 // Returns a Response for any /auth/* or /api/* route it owns, or null so the caller falls
 // through to static file serving. Cookies are HttpOnly so the session token is never exposed to JS.
-export async function handleAuthRequest(request: Request, url: URL, service: AuthService, cookieOptions: CookieOptions, baseUrl: string, adminToken: string | null = null): Promise<Response | null> {
+export async function handleAuthRequest(request: Request, url: URL, service: AuthService, cookieOptions: CookieOptions, baseUrl: string, adminToken: string | null = null, social: SocialBridge = NOOP_SOCIAL): Promise<Response | null> {
   const { pathname } = url;
   const { method } = request;
 
@@ -222,6 +227,82 @@ export async function handleAuthRequest(request: Request, url: URL, service: Aut
     }
 
     return json({ error: "Unknown admin route." }, 404);
+  }
+
+  // --- Friends ---
+  if (pathname === "/api/friends" && method === "GET") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    const friends = service.listFriends(user.id).map((u) => ({ user: u, online: social.isOnline(u.id) }));
+    const requests = service.listFriendRequests(user.id);
+    return json({ friends, incoming: requests.incoming, outgoing: requests.outgoing });
+  }
+
+  if (pathname === "/api/users/search" && method === "GET") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    return json({ users: service.searchUsers(user.id, url.searchParams.get("q")) });
+  }
+
+  if (pathname === "/api/friends/requests" && method === "POST") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    const body = await readJsonBody(request);
+    if (!body) return json({ error: "Invalid request body." }, 400);
+    const result = service.sendFriendRequest(user.id, body.username);
+    if (result === "self") return json({ error: "You can't add yourself." }, 400);
+    if (result === "not-found") return json({ error: "No user with that username." }, 404);
+    if (result === "rate-limited") return json({ error: "Too many requests. Try again shortly." }, 429);
+    if (result === "exists") return json({ error: "You're already friends or have a pending request." }, 409);
+    const targetId = service.resolveUserId(body.username);
+    if (targetId) social.notify(targetId, result === "accepted" ? { type: "FRIEND_ACCEPTED", user: publicRef(user) } : { type: "FRIEND_REQUEST", from: publicRef(user) });
+    log("info", "friend.request", { ip: ip(request), userId: user.id, result });
+    return json({ status: result });
+  }
+
+  const acceptMatch = pathname.match(/^\/api\/friends\/requests\/([^/]+)\/accept$/);
+  if (acceptMatch && method === "POST") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    const requesterId = decodeURIComponent(acceptMatch[1]!);
+    const ok = service.acceptFriendRequest(user.id, requesterId);
+    if (ok) social.notify(requesterId, { type: "FRIEND_ACCEPTED", user: publicRef(user) });
+    return ok ? json({ ok: true }) : json({ error: "No pending request from that user." }, 404);
+  }
+
+  const requestMatch = pathname.match(/^\/api\/friends\/requests\/([^/]+)$/);
+  if (requestMatch && method === "DELETE") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    const otherId = decodeURIComponent(requestMatch[1]!);
+    const ok = service.removeFriendship(user.id, otherId);
+    if (ok) social.notify(otherId, { type: "FRIENDS_CHANGED" });
+    return ok ? json({ ok: true }) : json({ error: "No such request." }, 404);
+  }
+
+  const friendMatch = pathname.match(/^\/api\/friends\/([^/]+)$/);
+  if (friendMatch && method === "DELETE") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    const otherId = decodeURIComponent(friendMatch[1]!);
+    const ok = service.removeFriendship(user.id, otherId);
+    if (ok) social.notify(otherId, { type: "FRIENDS_CHANGED" });
+    return ok ? json({ ok: true }) : json({ error: "Not friends." }, 404);
+  }
+
+  if (pathname === "/api/friends/invite" && method === "POST") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    const body = await readJsonBody(request);
+    if (!body) return json({ error: "Invalid request body." }, 400);
+    const targetId = typeof body.userId === "string" ? body.userId : "";
+    const roomCode = typeof body.roomCode === "string" ? body.roomCode.trim() : "";
+    if (roomCode.length === 0 || roomCode.length > 12) return json({ error: "Invalid room code." }, 400);
+    if (!service.areFriends(user.id, targetId)) return json({ error: "You can only invite friends." }, 403);
+    if (!social.isOnline(targetId)) return json({ error: "That friend is offline." }, 409);
+    social.notify(targetId, { type: "GAME_INVITE", from: publicRef(user), roomCode });
+    log("info", "friend.invite", { ip: ip(request), userId: user.id, targetUserId: targetId });
+    return json({ ok: true });
   }
 
   if (pathname === "/auth/github" && method === "GET") {

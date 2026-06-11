@@ -5,10 +5,12 @@ import { indexCountries, rawCountries, validateCountries } from "../src/core/cou
 import { RoomManager, type MultiplayerConnection } from "./rooms/RoomManager";
 import { AuthService, bunPasswordHasher, handleAuthRequest, readSessionToken, type AuthUser } from "./auth";
 import { openDatabase, SqliteUserStore } from "./db/database";
+import { SocialHub, type SocialConnection } from "./social/SocialHub";
 
 interface WebSocketData {
   // Resolved once at upgrade time from the session cookie; immutable for the socket's lifetime.
   readonly user: AuthUser | null;
+  readonly kind: "room" | "social";
 }
 
 const DEFAULT_PORT = 3000;
@@ -92,6 +94,8 @@ const cookieOptions = { secure: process.env.NODE_ENV === "production" };
 const baseUrl = process.env.BASE_URL ?? `http://localhost:${readIntegerEnv("PORT", DEFAULT_PORT)}`;
 // Out-of-band admin credential. When unset, the /api/admin surface is disabled entirely.
 const adminToken = process.env.ADMIN_TOKEN && process.env.ADMIN_TOKEN.length > 0 ? process.env.ADMIN_TOKEN : null;
+// Presence + friend/invite push hub, backed by the persistent /social socket.
+const socialHub = new SocialHub((userId) => authService.friendIds(userId));
 
 // Hourly cleanup of expired session rows; cheap and keeps the table from growing unbounded.
 setInterval(() => authService.pruneExpiredSessions(), 60 * 60 * 1000).unref?.();
@@ -100,6 +104,7 @@ setInterval(() => authService.pruneExpiredSessions(), 60 * 60 * 1000).unref?.();
 // across open/message/close callbacks. The socket itself changes identity on each callback
 // reference, so we need one wrapper that lives for the socket's full lifetime.
 const connectionMap = new WeakMap<Bun.ServerWebSocket<WebSocketData>, MultiplayerConnection>();
+const socialConnectionMap = new WeakMap<Bun.ServerWebSocket<WebSocketData>, SocialConnection>();
 
 const server = Bun.serve<WebSocketData>({
   hostname: "0.0.0.0",
@@ -113,17 +118,33 @@ const server = Bun.serve<WebSocketData>({
       if (!isAllowedOrigin(request, origins)) return new Response("Forbidden", { status: 403 });
       // Authenticate the upgrade from the session cookie so the socket carries the real identity.
       const user = authService.authenticate(readSessionToken(request));
-      const upgraded = serverInstance.upgrade(request, { data: { user } });
+      const upgraded = serverInstance.upgrade(request, { data: { user, kind: "room" } });
+      return upgraded ? undefined : new Response("Upgrade failed", { status: 400 });
+    }
+    if (url.pathname === "/social") {
+      if (!isAllowedOrigin(request, origins)) return new Response("Forbidden", { status: 403 });
+      // The social channel is for signed-in users only — presence makes no sense for guests.
+      const user = authService.authenticate(readSessionToken(request));
+      if (!user) return new Response("Unauthorized", { status: 401 });
+      const upgraded = serverInstance.upgrade(request, { data: { user, kind: "social" } });
       return upgraded ? undefined : new Response("Upgrade failed", { status: 400 });
     }
 
-    const authResponse = await handleAuthRequest(request, url, authService, cookieOptions, baseUrl, adminToken);
+    const authResponse = await handleAuthRequest(request, url, authService, cookieOptions, baseUrl, adminToken, socialHub);
     if (authResponse) return authResponse;
 
     return serveStatic(url.pathname);
   },
   websocket: {
     open(socket) {
+      if (socket.data.kind === "social") {
+        const user = socket.data.user;
+        if (!user) { socket.close(1008, "unauthorized"); return; }
+        const connection: SocialConnection = { userId: user.id, send: (data) => socket.send(data) };
+        socialConnectionMap.set(socket, connection);
+        socialHub.attach(connection);
+        return;
+      }
       const connection: MultiplayerConnection = {
         send: (msg) => socket.send(msg),
         close: (code, reason) => socket.close(code, reason),
@@ -133,10 +154,18 @@ const server = Bun.serve<WebSocketData>({
       roomManager.attach(connection);
     },
     message(socket, message) {
+      // The social channel is server-push only; clients only send heartbeats, which we ignore.
+      if (socket.data.kind === "social") return;
       const connection = connectionMap.get(socket);
       if (connection) roomManager.handleRawMessage(connection, message);
     },
     close(socket) {
+      if (socket.data.kind === "social") {
+        const connection = socialConnectionMap.get(socket);
+        if (connection) socialHub.detach(connection);
+        socialConnectionMap.delete(socket);
+        return;
+      }
       const connection = connectionMap.get(socket);
       if (connection) roomManager.detach(connection);
       connectionMap.delete(socket);

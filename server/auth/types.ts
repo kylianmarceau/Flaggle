@@ -7,6 +7,25 @@ export interface AuthUser {
   readonly createdAt: number;
 }
 
+// Public-safe projection of a user — never carries email or password hash.
+export interface PublicUser {
+  readonly id: string;
+  readonly username: string;
+  readonly avatarEmoji: string | null;
+}
+
+export interface FriendRequestEntry {
+  readonly user: PublicUser;
+  readonly createdAt: number;
+}
+
+export interface FriendRequestLists {
+  readonly incoming: readonly FriendRequestEntry[];
+  readonly outgoing: readonly FriendRequestEntry[];
+}
+
+export type SendFriendRequestResult = "requested" | "accepted" | "exists" | "not-found" | "self";
+
 export interface StoredUser extends AuthUser {
   readonly passwordHash: string | null;
 }
@@ -162,6 +181,7 @@ export interface CreateSessionInput {
 export interface UserStore {
   createUser(input: CreateUserInput): StoredUser;
   findUserByEmail(email: string): StoredUser | null;
+  findUserByUsername(username: string): StoredUser | null;
   findUserById(id: string): StoredUser | null;
   findUserByOAuth(provider: string, providerId: string): StoredUser | null;
   linkOAuthAccount(userId: string, provider: string, providerId: string): void;
@@ -180,6 +200,15 @@ export interface UserStore {
   listUsers(query: AdminUserListQuery): AdminUserList;
   deleteUser(id: string): boolean;
   deleteUserSessions(userId: string): number;
+  // Friends.
+  sendFriendRequest(requesterId: string, addresseeId: string, now: number): SendFriendRequestResult;
+  acceptFriendRequest(userId: string, requesterId: string, now: number): boolean;
+  removeFriendship(userId: string, otherId: string): boolean;
+  listFriends(userId: string): readonly PublicUser[];
+  listFriendRequests(userId: string): FriendRequestLists;
+  areFriends(a: string, b: string): boolean;
+  friendIds(userId: string): readonly string[];
+  searchUsers(query: string, excludeId: string, limit: number): readonly PublicUser[];
 }
 
 export interface PasswordHasher {
