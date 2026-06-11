@@ -118,9 +118,45 @@ describe("auth service", () => {
     const registered = await service.register({ email: "a@b.com", password: "supersecret", displayName: "A" });
     if (!registered.ok) throw new Error("registration failed");
 
-    service.recordGame(registered.user.id, { correctAnswers: 10, wrongAnswers: 2, bestStreak: 5 });
-    const stats = service.recordGame(registered.user.id, { correctAnswers: 3, wrongAnswers: 1, bestStreak: 3 });
-    expect(stats).toEqual({ games: 2, correctAnswers: 13, wrongAnswers: 3, bestStreak: 5 });
+    service.recordGame(registered.user.id, { mode: "solo", categoryIds: ["flags"], correctAnswers: 10, wrongAnswers: 2, score: 500, bestStreak: 5 });
+    const stats = service.recordGame(registered.user.id, { mode: "solo", categoryIds: ["flags"], correctAnswers: 3, wrongAnswers: 1, score: 200, bestStreak: 3 });
+    expect(stats).toMatchObject({ totalGames: 2, totalCorrect: 13, totalWrong: 3, bestStreak: 5, soloGames: 2 });
+  });
+
+  it("tracks world-map best time and best countries without polluting accuracy", async () => {
+    const { service } = createService();
+    const reg = await service.register({ email: "w@b.com", password: "supersecret", displayName: "W" });
+    if (!reg.ok) throw new Error("registration failed");
+    const uid = reg.user.id;
+    const world = (extra: Record<string, unknown>) => ({ mode: "world-map" as const, categoryIds: ["world-map:name-all"], correctAnswers: 0, wrongAnswers: 0, score: 0, bestStreak: 0, ...extra });
+
+    service.recordGame(uid, world({ completed: false, countriesFound: 50, countriesTotal: 196, playMode: "name-all" }));
+    service.recordGame(uid, world({ completed: true, durationMs: 120_000, countriesFound: 196, countriesTotal: 196, playMode: "name-all" }));
+    const fast = service.recordGame(uid, world({ completed: true, durationMs: 90_000, countriesFound: 196, countriesTotal: 196, playMode: "name-all" }));
+    expect(fast.worldBestTimeMs).toBe(90_000); // MIN over completed runs
+
+    // A slower completion must not worsen the best time.
+    const slow = service.recordGame(uid, world({ completed: true, durationMs: 200_000, countriesFound: 196, countriesTotal: 196, playMode: "name-all" }));
+    expect(slow.worldBestTimeMs).toBe(90_000);
+    expect(slow.worldMapGames).toBe(4);
+    expect(slow.worldMapCompletions).toBe(3);
+    expect(slow.worldBestCountries).toBe(196);
+    // World-map never feeds solo/multiplayer/overall accuracy aggregates.
+    expect(slow.totalCorrect).toBe(0);
+    expect(slow.totalWrong).toBe(0);
+    expect(slow.soloGames).toBe(0);
+    expect(slow.multiplayerGames).toBe(0);
+  });
+
+  it("excludes puzzle continents from world best time and best countries", async () => {
+    const { service } = createService();
+    const reg = await service.register({ email: "p@b.com", password: "supersecret", displayName: "P" });
+    if (!reg.ok) throw new Error("registration failed");
+    const stats = service.recordGame(reg.user.id, { mode: "world-map", categoryIds: ["world-map:puzzle"], correctAnswers: 0, wrongAnswers: 0, score: 0, bestStreak: 0, completed: true, durationMs: 30_000, countriesFound: 54, countriesTotal: 54, playMode: "puzzle" });
+    expect(stats.worldMapGames).toBe(1);
+    expect(stats.worldMapCompletions).toBe(1);
+    expect(stats.worldBestTimeMs).toBe(0);   // puzzle time is not a full-world best
+    expect(stats.worldBestCountries).toBe(0); // puzzle continents excluded
   });
 });
 
@@ -144,9 +180,9 @@ describe("auth routes", () => {
     const r = await route(service, jsonRequest("/auth/register", "POST", { email: "a@b.com", password: "supersecret", displayName: "A" }));
     const token = tokenFrom(r!);
 
-    const resp = await route(service, jsonRequest("/api/games", "POST", { correctAnswers: 7, wrongAnswers: 1, bestStreak: 4 }, token));
+    const resp = await route(service, jsonRequest("/api/games", "POST", { mode: "solo", categoryIds: ["flags"], correctAnswers: 7, wrongAnswers: 1, score: 300, bestStreak: 4 }, token));
     expect(resp?.status).toBe(200);
-    expect((await resp!.json()).stats).toMatchObject({ games: 1, correctAnswers: 7 });
+    expect((await resp!.json()).stats).toMatchObject({ totalGames: 1, totalCorrect: 7, soloGames: 1 });
   });
 
   it("falls through for unrelated routes", async () => {
@@ -199,14 +235,14 @@ describe("admin account controls", () => {
   it("returns user detail with stats", async () => {
     const { service } = createService();
     const { id } = await seedUser(service, "carol@b.com");
-    service.recordGame(id, { correctAnswers: 3, wrongAnswers: 1, bestStreak: 2 });
+    service.recordGame(id, { mode: "solo", categoryIds: ["flags"], correctAnswers: 3, wrongAnswers: 1, score: 0, bestStreak: 2 });
 
     const resp = await route(service, adminRequest(`/api/admin/users/${id}`, "GET", ADMIN), ADMIN);
     expect(resp?.status).toBe(200);
     const body = await resp!.json();
     expect(body.user.email).toBe("carol@b.com");
     expect(body.user).not.toHaveProperty("passwordHash");
-    expect(body.stats).toMatchObject({ games: 1, correctAnswers: 3 });
+    expect(body.stats).toMatchObject({ totalGames: 1, totalCorrect: 3 });
 
     const missing = await route(service, adminRequest("/api/admin/users/nope", "GET", ADMIN), ADMIN);
     expect(missing?.status).toBe(404);
@@ -215,7 +251,7 @@ describe("admin account controls", () => {
   it("deletes a user and cascades their data", async () => {
     const { service } = createService();
     const { id, token } = await seedUser(service, "dave@b.com");
-    service.recordGame(id, { correctAnswers: 5, wrongAnswers: 0, bestStreak: 5 });
+    service.recordGame(id, { mode: "solo", categoryIds: ["flags"], correctAnswers: 5, wrongAnswers: 0, score: 0, bestStreak: 5 });
     expect((await route(service, jsonRequest("/auth/me", "GET", undefined, token)))?.status).toBe(200);
 
     const del = await route(service, adminRequest(`/api/admin/users/${id}`, "DELETE", ADMIN), ADMIN);

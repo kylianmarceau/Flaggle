@@ -24,6 +24,7 @@ export interface SoloGameScreenOptions {
   readonly onStateChange: (state: GameState) => void;
   readonly onReset: () => void;
   readonly onMultiplayer: () => void;
+  readonly onViewStats?: () => void;
   readonly onLeaderboard: () => void;
   readonly getAuthUser: () => AuthUser | null;
   readonly authControls?: AuthControls;

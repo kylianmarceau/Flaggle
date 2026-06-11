@@ -13,6 +13,15 @@ import { createFeedbackView, showFeedback } from "../dom/renderFeedback";
 import { createPuzzleMapView, type PuzzleMapProgress } from "../dom/renderPuzzleMap";
 import { createWorldMapView, setWorldMapMissingMarkersVisible, setWorldMapTargetCountry, updateWorldMapView } from "../dom/renderWorldMap";
 
+export interface WorldMapRunResult {
+  readonly playMode: WorldMapGameModeId;
+  readonly timed: boolean;
+  readonly completed: boolean;
+  readonly durationMs: number;
+  readonly countriesFound: number;
+  readonly countriesTotal: number;
+}
+
 export interface CountryGuessingScreenOptions {
   readonly countryIndex: CountryIndex;
   readonly worldCountryFeatures: readonly WorldCountryFeature[];
@@ -20,6 +29,8 @@ export interface CountryGuessingScreenOptions {
   readonly initialMode: WorldMapGameModeId;
   readonly onGameModeChange: (gameMode: GameModeId) => void;
   readonly onMultiplayer: () => void;
+  // Called once per world-map run when it ends (completion, restart, mode change, or leaving).
+  readonly onRecordGame?: (result: WorldMapRunResult) => void;
   readonly onLeaderboard: () => void;
   readonly getAuthUser: () => AuthUser | null;
 }
@@ -43,12 +54,22 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   let puzzleContinent: Continent = "Africa";
   let puzzlePlacedCount = 0;
   let puzzleTotalCount = countryIndex.countries.filter((country) => country.continent === puzzleContinent).length;
+  // A run = from a fresh start until it ends (completion, restart, mode/continent change, or leaving).
+  // Recorded at most once; reset to false whenever a new run begins.
+  let currentRunRecorded = false;
   let puzzleAccuracyPercent: number | null = null;
   let puzzleChecked = false;
-
   function complete(): boolean {
     if (playMode === "puzzle") return puzzleTotalCount > 0 && puzzlePlacedCount >= puzzleTotalCount;
     return guessedCountryIds.size >= countryIndex.countries.length;
+  }
+  function recordCurrentRun(completed: boolean): void {
+    const countriesFound = playMode === "puzzle" ? puzzlePlacedCount : guessedCountryIds.size;
+    if (countriesFound === 0 || currentRunRecorded) return;
+    currentRunRecorded = true;
+    const countriesTotal = playMode === "puzzle" ? puzzleTotalCount : countryIndex.countries.length;
+    const timed = playTimer.mode === "count-up";
+    options.onRecordGame?.({ playMode, timed, completed, durationMs: timed ? Math.round(playTimer.currentElapsedMs()) : 0, countriesFound, countriesTotal });
   }
 
   function chooseNextTargetCountryId(): CountryId | null {
@@ -133,8 +154,10 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   }
 
   function resetGame(feedbackMessage: string): void {
+    recordCurrentRun(false); // record the run being abandoned before clearing it
     setAtlasOpen(atlas, false);
     guessedCountryIds.clear();
+    currentRunRecorded = false; // a fresh run starts
     input.value = "";
     lastCountryName.textContent = "None";
     puzzleAccuracyPercent = null;
@@ -163,6 +186,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     if (complete()) {
       if (playTimer.mode === "count-up") {
         const finalTimeMs = playTimer.stop();
+        recordCurrentRun(true);
         void finishTimerRun(finalTimeMs).then((result) => {
           showFeedback(
             feedback,
@@ -173,6 +197,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
         return;
       }
 
+      recordCurrentRun(true);
       showFeedback(
         feedback,
         `World complete. All ${countryIndex.countries.length} countries found. Switch to Timer mode to post a time to the leaderboard.`,
@@ -284,6 +309,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     const alreadyChecked = puzzleChecked;
     puzzleChecked = true;
     puzzleAccuracyPercent = accuracy.accuracyPercent;
+    if (!alreadyChecked) recordCurrentRun(true);
     const baseMessage = `${puzzleContinent} accuracy: ${accuracy.accuracyPercent}%. ${accuracy.closeCount}/${accuracy.totalCount} countries are very close to the correct spot.`;
 
     if (playTimer.mode === "count-up" && !alreadyChecked) {
@@ -467,11 +493,13 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   puzzleContinentSelect.addEventListener(
     "change",
     () => {
+      recordCurrentRun(false); // abandoning the current continent's puzzle
       const nextContinent = CONTINENTS.find((continent) => continent === puzzleContinentSelect.value) ?? "Africa";
       puzzleContinent = nextContinent;
       puzzle.setContinent(puzzleContinent);
       handlePuzzleProgress(puzzle.getState());
       playTimer.reset();
+      currentRunRecorded = false; // a fresh puzzle run starts
       render();
       puzzleAccuracyPercent = null;
       puzzleChecked = false;
@@ -561,6 +589,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   return {
     element,
     destroy: () => {
+      recordCurrentRun(false); // leaving the screen ends the run; record progress so it isn't lost
       playTimer.destroy();
       puzzle.destroy();
       controller.abort();

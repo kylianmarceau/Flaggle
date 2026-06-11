@@ -10,6 +10,7 @@ import {
 import type {
   AdminUserList,
   AuthUser,
+  FullStats,
   GameResult,
   LeaderboardEntry,
   LeaderboardQuery,
@@ -150,8 +151,12 @@ export class AuthService {
     return this.store.getStats(userId);
   }
 
+  getFullStats(userId: string): FullStats {
+    return this.store.getFullStats(userId);
+  }
+
   recordGame(userId: string, result: GameResult): UserStats {
-    return this.store.recordGame(userId, result);
+    return this.store.recordGame(userId, result, this.clock());
   }
 
   submitBestTime(userId: string, input: { gameMode?: unknown; variant?: unknown; timeMs?: unknown }): SubmitBestTimeResult | { error: string } {
