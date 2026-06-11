@@ -10,8 +10,11 @@ import {
 import type {
   AdminUserList,
   AuthUser,
+  FriendRequestLists,
   FullStats,
   GameResult,
+  PublicUser,
+  SendFriendRequestResult,
   LeaderboardEntry,
   LeaderboardQuery,
   PasswordHasher,
@@ -25,7 +28,9 @@ import type {
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 200;
-const MAX_DISPLAY_NAME_LENGTH = 32;
+const USERNAME_MIN_LENGTH = 3;
+const USERNAME_MAX_LENGTH = 20;
+const USERNAME_PATTERN = /^[A-Za-z0-9_-]+$/;
 const MAX_EMAIL_LENGTH = 254;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_ADMIN_PAGE = 50;
@@ -46,9 +51,12 @@ function normalizeEmail(value: unknown): string | null {
   return email.length <= MAX_EMAIL_LENGTH && EMAIL_PATTERN.test(email) ? email : null;
 }
 
-function normalizeDisplayName(value: unknown, fallback: string): string {
-  const name = (typeof value === "string" ? value.trim() : "") || fallback;
-  return name.slice(0, MAX_DISPLAY_NAME_LENGTH);
+// The display name doubles as a unique handle (used to add friends), so it must match the
+// username charset and length. Returns the trimmed name (case preserved) or null if invalid.
+function normalizeUsername(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim();
+  return name.length >= USERNAME_MIN_LENGTH && name.length <= USERNAME_MAX_LENGTH && USERNAME_PATTERN.test(name) ? name : null;
 }
 
 const SUBMIT_RATE_LIMIT = 10;
@@ -81,12 +89,15 @@ export class AuthService {
       return { ok: false, status: 400, error: `Password must be ${MIN_PASSWORD_LENGTH}–${MAX_PASSWORD_LENGTH} characters.` };
     }
 
+    const username = normalizeUsername(input.displayName);
+    if (!username) {
+      return { ok: false, status: 400, error: `Username must be ${USERNAME_MIN_LENGTH}–${USERNAME_MAX_LENGTH} characters using letters, numbers, _ or -.` };
+    }
     if (this.store.findUserByEmail(email)) return { ok: false, status: 409, error: "An account with that email already exists." };
-
-    const displayName = normalizeDisplayName(input.displayName, email.split("@")[0] ?? "Player");
+    if (this.store.findUserByUsername(username)) return { ok: false, status: 409, error: "That username is taken." };
     const now = this.clock();
     const passwordHash = await this.hasher.hash(password);
-    const user = this.store.createUser({ id: createUserId(), email, displayName, passwordHash, avatarUrl: null, createdAt: now });
+    const user = this.store.createUser({ id: createUserId(), email, displayName: username, passwordHash, avatarUrl: null, createdAt: now });
     return { ok: true, user: this.toAuthUser(user), session: this.openSession(user.id, now) };
   }
 
@@ -138,13 +149,29 @@ export class AuthService {
     const user = this.store.createUser({
       id: createUserId(),
       email: profile.email,
-      displayName: profile.displayName,
+      displayName: this.generateUniqueUsername(profile.displayName || profile.email.split("@")[0] || "player"),
       passwordHash: null,
       avatarUrl: profile.avatarUrl ?? null,
       createdAt: now,
     });
     this.store.linkOAuthAccount(user.id, provider, providerId);
     return this.toAuthUser(user);
+  }
+
+  // Derive a unique, valid username for an OAuth signup from their provider name/email,
+  // suffixing with random digits on collision so two "John Smith"s don't clash.
+  private generateUniqueUsername(base: string): string {
+    const cleaned = base.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, USERNAME_MAX_LENGTH);
+    let candidate = cleaned;
+    while (candidate.length < USERNAME_MIN_LENGTH) candidate += "0";
+    if (!this.store.findUserByUsername(candidate)) return candidate;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const suffix = String(Math.floor(Math.random() * 10000));
+      const stem = cleaned.slice(0, Math.max(USERNAME_MIN_LENGTH - 1, USERNAME_MAX_LENGTH - suffix.length - 1));
+      const next = `${stem}-${suffix}`;
+      if (!this.store.findUserByUsername(next)) return next;
+    }
+    return `player-${createUserId().slice(0, 8)}`;
   }
 
   getStats(userId: string): UserStats {
@@ -215,6 +242,55 @@ export class AuthService {
 
   revokeUserSessions(id: string): number {
     return this.store.deleteUserSessions(id);
+  }
+
+  // --- Friends ---
+
+  // Send a friend request to a user identified by username. Returns the store result, or
+  // "not-found" when the username doesn't resolve, or "rate-limited" when over the limit.
+  sendFriendRequest(requesterId: string, username: unknown): SendFriendRequestResult | "rate-limited" {
+    if (!this.allowSubmit(`friend-req:${requesterId}`)) return "rate-limited";
+    const handle = normalizeUsername(username);
+    if (!handle) return "not-found";
+    const target = this.store.findUserByUsername(handle);
+    if (!target) return "not-found";
+    return this.store.sendFriendRequest(requesterId, target.id, this.clock());
+  }
+
+  acceptFriendRequest(userId: string, requesterId: string): boolean {
+    return this.store.acceptFriendRequest(userId, requesterId, this.clock());
+  }
+
+  removeFriendship(userId: string, otherId: string): boolean {
+    return this.store.removeFriendship(userId, otherId);
+  }
+
+  listFriends(userId: string): readonly PublicUser[] {
+    return this.store.listFriends(userId);
+  }
+
+  listFriendRequests(userId: string): FriendRequestLists {
+    return this.store.listFriendRequests(userId);
+  }
+
+  areFriends(a: string, b: string): boolean {
+    return this.store.areFriends(a, b);
+  }
+
+  friendIds(userId: string): readonly string[] {
+    return this.store.friendIds(userId);
+  }
+
+  searchUsers(userId: string, query: unknown): readonly PublicUser[] {
+    if (typeof query !== "string" || query.trim().length < 2) return [];
+    if (!this.allowSubmit(`user-search:${userId}`)) return [];
+    return this.store.searchUsers(query.trim(), userId, 20);
+  }
+
+  // Resolve a username to its user id (for pushing live notifications to the right person).
+  resolveUserId(username: unknown): string | null {
+    const handle = normalizeUsername(username);
+    return handle ? this.store.findUserByUsername(handle)?.id ?? null : null;
   }
 
   private allowSubmit(userId: string): boolean {

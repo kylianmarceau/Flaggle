@@ -10,7 +10,11 @@ import { createCountryGuessingScreen, type WorldMapRunResult } from "../ui/scree
 import { createAuthControls } from "../ui/components/AuthPanel";
 import { createSoloGameScreen } from "../ui/screens/SoloGameScreen";
 import { createStatsScreen } from "../ui/screens/StatsScreen";
+import { createFriendsScreen } from "../ui/screens/FriendsScreen";
+import { createSocialClient, resolveSocialUrl } from "../core/social/SocialClient";
+import type { SocialServerMessage } from "../core/social/socialProtocol";
 import { createLeaderboardScreen } from "../ui/screens/LeaderboardScreen";
+import { el } from "../ui/dom/createElement";
 import { createMultiplayerLobbyScreen } from "../ui/screens/MultiplayerLobbyScreen";
 import type { AppRoute, Screen } from "./router";
 
@@ -48,7 +52,16 @@ export function createApp(options: AppOptions): App {
   let lastSoloState: GameState | null = null;
 
   // Account controls persist across navigation and are fixed to the top-right of the viewport.
-  const authControls = createAuthControls({ onAuthChange: () => undefined, onViewStats: () => navigate({ type: "stats" }) });
+  // Persistent social channel (presence + friend/invite events) for the signed-in user.
+  const social = createSocialClient(resolveSocialUrl(window.location));
+  const authControls = createAuthControls({
+    onAuthChange: (state) => {
+      if (state.user) social.connect();
+      else social.disconnect();
+    },
+    onViewStats: () => navigate({ type: "stats" }),
+    onViewFriends: () => navigate({ type: "friends" }),
+  });
 
   function attachGlobalControls(): void {
     options.root.append(authControls.trigger, authControls.panel);
@@ -199,7 +212,7 @@ export function createApp(options: AppOptions): App {
     }
   }
 
-  async function startMultiplayer(): Promise<void> {
+  async function startMultiplayer(joinCode?: string): Promise<void> {
     const run = navigationRun;
     const loading = createLoadingScreen("Loading multiplayer...");
     mount(loading);
@@ -225,6 +238,7 @@ export function createApp(options: AppOptions): App {
           startSolo(save?.categoryIds ?? DEFAULT_CATEGORY_IDS, save !== null);
         },
         authControls,
+        ...(joinCode ? { initialJoinCode: joinCode } : {}),
       }),
     );
   }
@@ -259,7 +273,7 @@ export function createApp(options: AppOptions): App {
       return;
     }
     if (route.type === "multiplayer") {
-      void startMultiplayer();
+      void startMultiplayer(route.joinCode);
       return;
     }
     if (route.type === "stats") {
@@ -268,11 +282,40 @@ export function createApp(options: AppOptions): App {
       return;
     }
 
+    if (route.type === "friends") {
+      mount(createFriendsScreen({
+        onBack: () => navigate({ type: "solo-game", continueSaved: true }),
+        subscribe: (listener) => social.subscribe((message: SocialServerMessage) => {
+          if (message.type !== "GAME_INVITE") listener();
+        }),
+      }));
+      return;
+    }
+
     if (route.type === "leaderboard") {
       startLeaderboard(route.mode, route.variant);
       return;
     }
   }
+
+  // Surface incoming game invites as a dismissible toast anywhere in the app.
+  function showGameInvite(fromUsername: string, roomCode: string): void {
+    const join = el("button", { className: "primary-action", text: "Join", attrs: { type: "button" } });
+    const dismiss = el("button", { className: "ghost-action", text: "Dismiss", attrs: { type: "button" } });
+    const toast = el("div", {
+      className: "game-invite-toast",
+      children: [el("span", { className: "invite-toast-text", text: `${fromUsername} invited you to a game` }), join, dismiss],
+    });
+    const close = () => { clearTimeout(timer); toast.remove(); };
+    const timer = setTimeout(close, 30000);
+    join.addEventListener("click", () => { close(); navigate({ type: "multiplayer", joinCode: roomCode }); });
+    dismiss.addEventListener("click", close);
+    options.root.append(toast);
+  }
+
+  social.subscribe((message) => {
+    if (message.type === "GAME_INVITE") showGameInvite(message.from.username, message.roomCode);
+  });
 
   return {
     start: () => navigate({ type: "solo-game", continueSaved: true }),

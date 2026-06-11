@@ -17,6 +17,7 @@ function svgIcon(svgMarkup: string): HTMLElement {
 export interface AuthPanelOptions {
   readonly onAuthChange: (state: AuthState) => void;
   readonly onViewStats?: () => void;
+  readonly onViewFriends?: () => void;
 }
 
 export interface AuthControls {
@@ -65,7 +66,7 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
 
   const emailInput = el("input", { attrs: { id: "auth-email", type: "email", placeholder: "Email", autocomplete: "email", "aria-label": "Email" } });
   const passwordInput = el("input", { attrs: { id: "auth-password", type: "password", placeholder: "Password", autocomplete: "current-password", "aria-label": "Password" } });
-  const displayNameInput = el("input", { attrs: { id: "auth-display-name", type: "text", placeholder: "Display name", autocomplete: "nickname", maxlength: "32", "aria-label": "Display name" } });
+  const displayNameInput = el("input", { attrs: { id: "auth-display-name", type: "text", placeholder: "Username", autocomplete: "username", maxlength: "20", minlength: "3", pattern: "[A-Za-z0-9_-]+", "aria-label": "Username", title: "3–20 characters: letters, numbers, underscore or hyphen" } });
   const submitButton = el("button", { className: "primary-action auth-submit", text: "Sign in", attrs: { type: "submit" } });
 
   const oauthSection = el("div", {
@@ -105,6 +106,7 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
   const gamesValue = el("strong", { text: "0" });
   const correctValue = el("strong", { text: "0" });
   const streakValue = el("strong", { text: "0" });
+  const friendsButton = el("button", { className: "secondary-action auth-view-friends", text: "Friends →", attrs: { type: "button" } });
   const viewStatsButton = el("button", { className: "secondary-action auth-view-stats", text: "View full stats →", attrs: { type: "button" } });
   const signOutButton = el("button", { className: "ghost-action auth-sign-out", text: "Sign out", attrs: { type: "button" } });
 
@@ -132,6 +134,7 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
           el("span", { children: [streakValue, el("small", { text: "best streak" })] }),
         ],
       }),
+      friendsButton,
       viewStatsButton,
       signOutButton,
     ],
@@ -380,6 +383,15 @@ export function createAuthControls(options: AuthPanelOptions): AuthControls {
     () => {
       closePanel();
       options.onViewStats?.();
+    },
+    { signal: controller.signal },
+  );
+
+  friendsButton.addEventListener(
+    "click",
+    () => {
+      closePanel();
+      options.onViewFriends?.();
     },
     { signal: controller.signal },
   );

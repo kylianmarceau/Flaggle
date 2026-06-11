@@ -72,7 +72,7 @@ describe("leaderboard", () => {
 
   it("requires a continent variant for puzzle mode", async () => {
     const { service } = createService();
-    const registered = await service.register({ email: "a@b.com", password: "supersecret", displayName: "A" });
+    const registered = await service.register({ email: "a@b.com", password: "supersecret", displayName: "ace" });
     if (!registered.ok) throw new Error("registration failed");
 
     expect(service.submitBestTime(registered.user.id, { gameMode: "puzzle", variant: "", timeMs: 60_000 })).toEqual({
@@ -86,7 +86,7 @@ describe("leaderboard", () => {
 
   it("serves leaderboard data over HTTP", async () => {
     const { service } = createService();
-    const register = await route(service, jsonRequest("/auth/register", "POST", { email: "a@b.com", password: "supersecret", displayName: "A" }));
+    const register = await route(service, jsonRequest("/auth/register", "POST", { email: "a@b.com", password: "supersecret", displayName: "ace" }));
     const token = tokenFrom(register!);
 
     const submit = await route(
@@ -98,7 +98,7 @@ describe("leaderboard", () => {
     const board = await route(service, jsonRequest("/api/leaderboard?mode=flags&variant=", "GET", undefined, token));
     expect(board?.status).toBe(200);
     const data = (await board!.json()) as { entries: Array<{ displayName: string }>; currentUser: { rank: number } };
-    expect(data.entries[0]?.displayName).toBe("A");
+    expect(data.entries[0]?.displayName).toBe("ace");
     expect(data.currentUser.rank).toBe(1);
   });
 });

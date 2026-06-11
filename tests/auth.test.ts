@@ -60,16 +60,32 @@ describe("auth service", () => {
 
   it("rejects duplicate emails and weak passwords", async () => {
     const { service } = createService();
-    await service.register({ email: "a@b.com", password: "supersecret", displayName: "A" });
+    await service.register({ email: "a@b.com", password: "supersecret", displayName: "alpha" });
 
-    expect(await service.register({ email: "a@b.com", password: "supersecret", displayName: "A" })).toMatchObject({ ok: false, status: 409 });
-    expect(await service.register({ email: "c@d.com", password: "short", displayName: "C" })).toMatchObject({ ok: false, status: 400 });
-    expect(await service.register({ email: "not-an-email", password: "supersecret", displayName: "A" })).toMatchObject({ ok: false, status: 400 });
+    expect(await service.register({ email: "a@b.com", password: "supersecret", displayName: "alpha" })).toMatchObject({ ok: false, status: 409 });
+    expect(await service.register({ email: "c@d.com", password: "short", displayName: "gamma" })).toMatchObject({ ok: false, status: 400 });
+    expect(await service.register({ email: "not-an-email", password: "supersecret", displayName: "alpha" })).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("enforces unique, valid usernames (case-insensitive)", async () => {
+    const { service } = createService();
+    expect(await service.register({ email: "x@b.com", password: "supersecret", displayName: "Pioneer" })).toMatchObject({ ok: true });
+    expect(await service.register({ email: "y@b.com", password: "supersecret", displayName: "pioneer" })).toMatchObject({ ok: false, status: 409 });
+    expect(await service.register({ email: "z@b.com", password: "supersecret", displayName: "ab" })).toMatchObject({ ok: false, status: 400 });
+    expect(await service.register({ email: "s@b.com", password: "supersecret", displayName: "has space" })).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("generates a unique username for OAuth signups that collide", async () => {
+    const { service } = createService();
+    await service.register({ email: "first@b.com", password: "supersecret", displayName: "nomad" });
+    const oauth = service.upsertOAuthUser("github", "gh_42", { email: "second@b.com", displayName: "Nomad" });
+    expect(oauth.displayName).not.toBe("nomad");
+    expect(oauth.displayName.toLowerCase().startsWith("nomad")).toBe(true);
   });
 
   it("logs in only with the correct password", async () => {
     const { service } = createService();
-    await service.register({ email: "a@b.com", password: "supersecret", displayName: "A" });
+    await service.register({ email: "a@b.com", password: "supersecret", displayName: "alpha" });
 
     expect(await service.login({ email: "a@b.com", password: "supersecret" })).toMatchObject({ ok: true });
     expect(await service.login({ email: "a@b.com", password: "wrong" })).toMatchObject({ ok: false, status: 401 });
@@ -100,7 +116,7 @@ describe("auth service", () => {
 
   it("expires sessions and clears them on logout", async () => {
     const { service, clock } = createService(1000);
-    const registered = await service.register({ email: "a@b.com", password: "supersecret", displayName: "A" });
+    const registered = await service.register({ email: "a@b.com", password: "supersecret", displayName: "alpha" });
     if (!registered.ok) throw new Error("registration failed");
 
     clock.value = 1000 + 60 * 60 * 1000 + 1;
@@ -115,7 +131,7 @@ describe("auth service", () => {
 
   it("accumulates stats and keeps the best streak", async () => {
     const { service } = createService();
-    const registered = await service.register({ email: "a@b.com", password: "supersecret", displayName: "A" });
+    const registered = await service.register({ email: "a@b.com", password: "supersecret", displayName: "alpha" });
     if (!registered.ok) throw new Error("registration failed");
 
     service.recordGame(registered.user.id, { mode: "solo", categoryIds: ["flags"], correctAnswers: 10, wrongAnswers: 2, score: 500, bestStreak: 5 });
@@ -125,7 +141,7 @@ describe("auth service", () => {
 
   it("tracks world-map best time and best countries without polluting accuracy", async () => {
     const { service } = createService();
-    const reg = await service.register({ email: "w@b.com", password: "supersecret", displayName: "W" });
+    const reg = await service.register({ email: "w@b.com", password: "supersecret", displayName: "wanda" });
     if (!reg.ok) throw new Error("registration failed");
     const uid = reg.user.id;
     const world = (extra: Record<string, unknown>) => ({ mode: "world-map" as const, categoryIds: ["world-map:name-all"], correctAnswers: 0, wrongAnswers: 0, score: 0, bestStreak: 0, ...extra });
@@ -150,7 +166,7 @@ describe("auth service", () => {
 
   it("excludes puzzle continents from world best time and best countries", async () => {
     const { service } = createService();
-    const reg = await service.register({ email: "p@b.com", password: "supersecret", displayName: "P" });
+    const reg = await service.register({ email: "p@b.com", password: "supersecret", displayName: "pablo" });
     if (!reg.ok) throw new Error("registration failed");
     const stats = service.recordGame(reg.user.id, { mode: "world-map", categoryIds: ["world-map:puzzle"], correctAnswers: 0, wrongAnswers: 0, score: 0, bestStreak: 0, completed: true, durationMs: 30_000, countriesFound: 54, countriesTotal: 54, playMode: "puzzle" });
     expect(stats.worldMapGames).toBe(1);
@@ -163,7 +179,7 @@ describe("auth service", () => {
 describe("auth routes", () => {
   it("registers via HTTP, sets cookie, and serves /auth/me", async () => {
     const { service } = createService();
-    const register = await route(service, jsonRequest("/auth/register", "POST", { email: "a@b.com", password: "supersecret", displayName: "A" }));
+    const register = await route(service, jsonRequest("/auth/register", "POST", { email: "a@b.com", password: "supersecret", displayName: "alpha" }));
     if (!register) throw new Error("route not handled");
     expect(register.status).toBe(201);
     const token = tokenFrom(register);
@@ -177,7 +193,7 @@ describe("auth routes", () => {
 
   it("records a game and updates stats", async () => {
     const { service } = createService();
-    const r = await route(service, jsonRequest("/auth/register", "POST", { email: "a@b.com", password: "supersecret", displayName: "A" }));
+    const r = await route(service, jsonRequest("/auth/register", "POST", { email: "a@b.com", password: "supersecret", displayName: "alpha" }));
     const token = tokenFrom(r!);
 
     const resp = await route(service, jsonRequest("/api/games", "POST", { mode: "solo", categoryIds: ["flags"], correctAnswers: 7, wrongAnswers: 1, score: 300, bestStreak: 4 }, token));

@@ -105,6 +105,28 @@ export interface SubmitBestTimeResponse {
   readonly isPersonalBest: boolean;
 }
 
+export interface PublicUser {
+  readonly id: string;
+  readonly username: string;
+  readonly avatarEmoji: string | null;
+}
+
+export interface FriendInfo {
+  readonly user: PublicUser;
+  readonly online: boolean;
+}
+
+export interface FriendRequestInfo {
+  readonly user: PublicUser;
+  readonly createdAt: number;
+}
+
+export interface FriendsData {
+  readonly friends: readonly FriendInfo[];
+  readonly incoming: readonly FriendRequestInfo[];
+  readonly outgoing: readonly FriendRequestInfo[];
+}
+
 async function postJson(path: string, body: unknown): Promise<Response> {
   return fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
@@ -183,6 +205,68 @@ export async function recordGame(result: GameResult): Promise<UserStats | null> 
     return data.stats ?? null;
   } catch {
     return null;
+  }
+}
+
+export async function fetchFriends(): Promise<FriendsData | null> {
+  try {
+    const response = await fetch("/api/friends");
+    if (!response.ok) return null;
+    return (await response.json()) as FriendsData;
+  } catch {
+    return null;
+  }
+}
+
+export async function searchUsers(query: string): Promise<readonly PublicUser[]> {
+  try {
+    const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+    if (!response.ok) return [];
+    return ((await response.json()) as { users: readonly PublicUser[] }).users;
+  } catch {
+    return [];
+  }
+}
+
+export async function sendFriendRequest(username: string): Promise<{ ok: true; status: string } | { ok: false; error: string }> {
+  try {
+    const response = await postJson("/api/friends/requests", { username });
+    const data = (await response.json()) as { status?: string; error?: string };
+    return response.ok && data.status ? { ok: true, status: data.status } : { ok: false, error: data.error ?? "Request failed." };
+  } catch {
+    return { ok: false, error: "Network error." };
+  }
+}
+
+export async function acceptFriendRequest(userId: string): Promise<boolean> {
+  try {
+    return (await postJson(`/api/friends/requests/${encodeURIComponent(userId)}/accept`, {})).ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function declineFriendRequest(userId: string): Promise<boolean> {
+  try {
+    return (await fetch(`/api/friends/requests/${encodeURIComponent(userId)}`, { method: "DELETE" })).ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function removeFriend(userId: string): Promise<boolean> {
+  try {
+    return (await fetch(`/api/friends/${encodeURIComponent(userId)}`, { method: "DELETE" })).ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function inviteFriendToGame(userId: string, roomCode: string): Promise<boolean> {
+  try {
+    return (await postJson("/api/friends/invite", { userId, roomCode })).ok;
+  } catch {
+    return false;
   }
 }
 
