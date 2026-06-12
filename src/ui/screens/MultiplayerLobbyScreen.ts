@@ -64,15 +64,23 @@ interface RoundReveal {
   readonly results: readonly RoundResult[];
 }
 
-type MultiplayerPlayMode = "flags" | "shapes" | "codes" | "capitals" | "click-country" | "spot-country";
+type MultiplayerPlayMode = "flags" | "flag-colors" | "shapes" | "codes" | "capitals" | "click-country" | "spot-country";
 
 type MultiplayerModeOption = Omit<GameModeOption, "id"> & { readonly id: MultiplayerPlayMode };
 
 const MULTIPLAYER_MODE_IDS: readonly MultiplayerPlayMode[] = ["flags", "shapes", "codes", "capitals", "click-country", "spot-country"];
 
-const MULTIPLAYER_MODE_OPTIONS: readonly MultiplayerModeOption[] = gameModeOptions
-  .filter((option) => MULTIPLAYER_MODE_IDS.includes(option.id as MultiplayerPlayMode))
-  .map((option) => ({ ...option, id: option.id as MultiplayerPlayMode }));
+const MULTIPLAYER_MODE_OPTIONS: readonly MultiplayerModeOption[] = [
+  ...gameModeOptions
+    .filter((option) => MULTIPLAYER_MODE_IDS.includes(option.id as MultiplayerPlayMode))
+    .map((option) => ({ ...option, id: option.id as MultiplayerPlayMode })),
+  {
+    id: "flag-colors",
+    label: "Flag colours",
+    description: "Guess countries to reveal matching colours in a hidden target flag.",
+    group: "Prompt games",
+  },
+];
 
 function getMultiplayerModeOption(mode: MultiplayerPlayMode): MultiplayerModeOption {
   return MULTIPLAYER_MODE_OPTIONS.find((option) => option.id === mode) ?? MULTIPLAYER_MODE_OPTIONS[0]!;
@@ -154,7 +162,7 @@ function categoryIdsForMode(mode: MultiplayerPlayMode): readonly string[] {
 function setupCopyForMode(mode: MultiplayerPlayMode): { readonly title: string; readonly description: string } {
   const modeOption = getMultiplayerModeOption(mode);
   return {
-    title: mode === "click-country" || mode === "spot-country" ? "Host or join a map race" : "Host or join a prompt race",
+    title: mode === "click-country" || mode === "spot-country" ? "Host or join a map race" : mode === "flag-colors" ? "Host or join a flag-colour race" : "Host or join a prompt race",
     description: `${modeOption.description} Create a room or join a code to race friends in real time.`,
   };
 }

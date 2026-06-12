@@ -27,7 +27,7 @@ function latestRoomMessage(connection: TestConnection) {
 
 function countryNameForRound(round: PublicRoundState): string {
   const country = countryIndex.countries.find((candidate) => {
-    if (round.prompt.kind === "image") return candidate.flagSrc === round.prompt.value;
+    if (round.prompt.kind === "image" || round.prompt.kind === "flag-colors") return candidate.flagSrc === round.prompt.value;
     if (round.prompt.kind === "map-highlight") return candidate.code === round.prompt.value;
     return candidate.code === round.prompt.value;
   });
@@ -101,6 +101,34 @@ describe("multiplayer room", () => {
     expect(reveal.answer).toBe(correctAnswer);
     expect(reveal.results.some((result) => result.playerId === "host" && result.correct && result.points > 0)).toBe(true);
     expect(room.snapshot().status).toBe("round-result");
+  });
+
+  it("serves flag-colour rounds as a hidden target flag race", () => {
+    const room = new Room({
+      code: "ABCDE",
+      hostPlayerId: "host",
+      hostName: "Host",
+      countryIndex,
+      categoryIds: ["flag-colors"],
+      seed: "flag-colours-seed",
+      now: 1000,
+      roundLimit: 1,
+      roundDurationMs: 30_000,
+    });
+
+    const start = room.startGame("host", 1010);
+    expect(start.ok).toBe(true);
+    const startedRound = start.ok ? start.messages.find((message) => message.type === "GAME_STARTED")?.round : null;
+    expect(startedRound?.prompt.kind).toBe("flag-colors");
+    expect(startedRound?.prompt.value).toMatch(/^assets\/flags\/[a-z]{2}\.svg$/);
+
+    const correctAnswer = countryNameForRound(startedRound!);
+    const correct = room.submitAnswer("host", correctAnswer, 1020);
+    expect(correct.ok).toBe(true);
+    const reveal = correct.ok ? correct.messages.find((message) => message.type === "ROUND_ENDED") : null;
+    expect(reveal?.type).toBe("ROUND_ENDED");
+    if (reveal?.type !== "ROUND_ENDED") throw new Error("Expected round reveal.");
+    expect(reveal.answer).toBe(correctAnswer);
   });
 
   it("generates server-owned final standings", () => {
