@@ -13,7 +13,7 @@ export interface PublicPlayerState {
 }
 
 export interface PublicPromptContent {
-  readonly kind: "image" | "text" | "map-click" | "map-highlight";
+  readonly kind: "image" | "text" | "map-click" | "map-highlight" | "flag-colors";
   readonly value: string;
 }
 
