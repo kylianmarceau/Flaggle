@@ -164,6 +164,10 @@
     min-height: clamp(220px, 42dvh, 340px);
   }
 
+  .daily-map-prompt .world-map-panel {
+    min-height: clamp(220px, 34dvh, 300px);
+  }
+
   .stats-panel {
     grid-template-columns: 1fr 1fr 1fr;
     gap: 7px;
