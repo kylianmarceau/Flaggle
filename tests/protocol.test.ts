@@ -51,6 +51,15 @@ describe("multiplayer public protocol", () => {
     expect(parseClientMessage({ type: "CREATE_ROOM", playerName: "Ada", categoryIds: ["flags"], roundDurationMs: 5000 }).ok).toBe(false);
   });
 
+  it("accepts bounded room option updates", () => {
+    const message = parseClientMessage({ type: "SET_ROOM_OPTIONS", categoryIds: [" flags ", "codes"], roundLimit: 10 });
+
+    expect(message.ok).toBe(true);
+    expect(message.ok ? message.message : null).toEqual({ type: "SET_ROOM_OPTIONS", categoryIds: ["flags", "codes"], roundLimit: 10 });
+    expect(parseClientMessage({ type: "SET_ROOM_OPTIONS", categoryIds: [] }).ok).toBe(false);
+    expect(parseClientMessage({ type: "SET_ROOM_OPTIONS", categoryIds: ["flags", "codes", "capitals", "shapes", "flag-colors", "pick-country", "spot-country", "extra", "too-many"] }).ok).toBe(false);
+  });
+
   it("accepts skip votes as a client message", () => {
     const message = parseClientMessage({ type: "VOTE_SKIP" });
     expect(message.ok).toBe(true);

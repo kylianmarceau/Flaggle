@@ -318,6 +318,18 @@ export async function handleAuthRequest(request: Request, url: URL, service: Aut
     return json({ friends, incoming: requests.incoming, outgoing: requests.outgoing });
   }
 
+
+  const profileMatch = pathname.match(/^\/api\/users\/([^/]+)\/profile$/);
+  if (profileMatch && method === "GET") {
+    const user = service.authenticate(readSessionToken(request));
+    if (!user) return json({ error: "Not authenticated." }, 401);
+    const targetId = decodeURIComponent(profileMatch[1]!);
+    const profile = service.getFriendProfile(user.id, targetId);
+    if (profile === "forbidden") return json({ error: "You can only view stats for friends." }, 403);
+    if (!profile) return json({ error: "User not found." }, 404);
+    return json({ ...profile, online: social.isOnline(targetId) });
+  }
+
   if (pathname === "/api/users/search" && method === "GET") {
     const user = service.authenticate(readSessionToken(request));
     if (!user) return json({ error: "Not authenticated." }, 401);

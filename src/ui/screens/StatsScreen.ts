@@ -89,7 +89,7 @@ function gameRow(record: GameRecord): HTMLElement {
   });
 }
 
-function buildStats(stats: FullStats, container: HTMLElement): void {
+export function buildStats(stats: FullStats, container: HTMLElement): void {
   container.replaceChildren(
 
     // Hero row

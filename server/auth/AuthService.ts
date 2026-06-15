@@ -337,6 +337,13 @@ export class AuthService {
     return this.store.areFriends(a, b);
   }
 
+  getFriendProfile(viewerId: string, targetId: string): { readonly user: PublicUser; readonly stats: FullStats } | "forbidden" | null {
+    const target = this.store.findUserById(targetId);
+    if (!target) return null;
+    if (viewerId !== targetId && !this.store.areFriends(viewerId, targetId)) return "forbidden";
+    return { user: this.toPublicUser(target), stats: this.store.getFullStats(targetId) };
+  }
+
   friendIds(userId: string): readonly string[] {
     return this.store.friendIds(userId);
   }

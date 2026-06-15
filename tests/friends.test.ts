@@ -165,4 +165,30 @@ describe("friends routes", () => {
     const denied = await routeWith(jsonRequest("/api/friends/invite", "POST", { userId: carol.user.id, roomCode: "ABCD" }, alice.session.id));
     expect(denied?.status).toBe(403);
   });
+  it("serves a friend profile with stats only to friends", async () => {
+    const { service } = createService();
+    const alice = await service.register({ email: "alice@b.com", password: "supersecret", displayName: "alice" });
+    const bob = await service.register({ email: "bob@b.com", password: "supersecret", displayName: "bob" });
+    const carol = await service.register({ email: "carol@b.com", password: "supersecret", displayName: "carol" });
+    if (!alice.ok || !bob.ok || !carol.ok) throw new Error("registration failed");
+    service.sendFriendRequest(alice.user.id, "bob");
+    service.acceptFriendRequest(bob.user.id, alice.user.id);
+    service.recordGame(bob.user.id, { mode: "solo", categoryIds: ["flags"], correctAnswers: 4, wrongAnswers: 1, score: 400, bestStreak: 3 });
+
+    const social: SocialBridge = { isOnline: (userId) => userId === bob.user.id, notify: () => {} };
+    const routeWith = (request: Request) => handleAuthRequest(request, new URL(request.url), service, COOKIE_OPTS, BASE_URL, null, social);
+
+    const ok = await routeWith(jsonRequest(`/api/users/${bob.user.id}/profile`, "GET", undefined, alice.session.id));
+    expect(ok?.status).toBe(200);
+    const body = await ok!.json() as { user: Record<string, unknown>; stats: { totalGames: number; recentGames: readonly { score: number }[] }; online: boolean };
+    expect(body.user.username).toBe("bob");
+    expect(body.user).not.toHaveProperty("email");
+    expect(body.stats.totalGames).toBe(1);
+    expect(body.stats.recentGames[0]?.score).toBe(400);
+    expect(body.online).toBe(true);
+
+    const denied = await routeWith(jsonRequest(`/api/users/${carol.user.id}/profile`, "GET", undefined, alice.session.id));
+    expect(denied?.status).toBe(403);
+  });
+
 });

@@ -170,6 +170,15 @@ export class RoomManager {
       case "SET_READY":
         this.withSessionRoom(connection, (room, session) => this.sendRoomResult(connection, room, room.setReady(session.playerId, message.ready, now)));
         return;
+      case "SET_ROOM_OPTIONS":
+        if (!hasSupportedCategory(message.categoryIds)) {
+          sendError(connection, "invalid-category", "Unsupported category selection.");
+          return;
+        }
+        this.withSessionRoom(connection, (room, session) =>
+          this.sendRoomResult(connection, room, room.updateOptions(session.playerId, { categoryIds: resolveCategoryIds(message.categoryIds), ...(message.roundLimit !== undefined ? { roundLimit: message.roundLimit } : {}), ...(message.roundDurationMs !== undefined ? { roundDurationMs: message.roundDurationMs } : {}) }, now)),
+        );
+        return;
       case "START_GAME":
         this.withSessionRoom(connection, (room, session) => this.sendRoomResult(connection, room, room.startGame(session.playerId, now)));
         return;

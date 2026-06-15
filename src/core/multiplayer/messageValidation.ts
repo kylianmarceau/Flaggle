@@ -5,6 +5,7 @@ export const MAX_CLIENT_MESSAGE_BYTES = 2048;
 export const MAX_PLAYER_NAME_LENGTH = 32;
 export const MAX_ROOM_CODE_LENGTH = 12;
 export const MAX_ANSWER_LENGTH = 80;
+export const MAX_ROOM_CATEGORY_IDS = 8;
 export const MIN_ROOM_ROUND_LIMIT = 3;
 export const MAX_ROOM_ROUND_LIMIT = 20;
 export const MIN_ROOM_ROUND_DURATION_MS = 10_000;
@@ -63,7 +64,7 @@ export function parseJsonMessage(raw: string): MessageParseResult<unknown> {
 }
 
 function isCategoryIdList(value: unknown): value is readonly string[] {
-  return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.trim().length > 0);
+  return Array.isArray(value) && value.length > 0 && value.length <= MAX_ROOM_CATEGORY_IDS && value.every((item) => typeof item === "string" && item.trim().length > 0);
 }
 
 function isPromptContent(value: unknown): boolean {
@@ -108,6 +109,22 @@ export function parseClientMessage(value: unknown): MessageParseResult<ClientMes
     case "SET_READY":
       if (!isBoolean(value.ready)) return reject("invalid-ready", "Ready must be a boolean.");
       return { ok: true, message: { type: "SET_READY", ready: value.ready } };
+    case "SET_ROOM_OPTIONS": {
+      if (!isCategoryIdList(value.categoryIds)) return reject("invalid-category", "At least one category is required.");
+      const roundLimit = clampInteger(value.roundLimit, MIN_ROOM_ROUND_LIMIT, MAX_ROOM_ROUND_LIMIT);
+      const roundDurationMs = clampInteger(value.roundDurationMs, MIN_ROOM_ROUND_DURATION_MS, MAX_ROOM_ROUND_DURATION_MS);
+      if (value.roundLimit !== undefined && roundLimit === null) return reject("invalid-room-settings", "Round count is invalid.");
+      if (value.roundDurationMs !== undefined && roundDurationMs === null) return reject("invalid-room-settings", "Round timer is invalid.");
+      return {
+        ok: true,
+        message: {
+          type: "SET_ROOM_OPTIONS",
+          categoryIds: value.categoryIds.map((id) => id.trim()),
+          ...(roundLimit !== null ? { roundLimit } : {}),
+          ...(roundDurationMs !== null ? { roundDurationMs } : {}),
+        },
+      };
+    }
     case "START_GAME":
       return { ok: true, message: { type: "START_GAME" } };
     case "PLAY_AGAIN":
