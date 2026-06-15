@@ -158,6 +158,12 @@ export interface FriendsData {
   readonly outgoing: readonly FriendRequestInfo[];
 }
 
+export interface FriendProfile {
+  readonly user: PublicUser;
+  readonly stats: FullStats;
+  readonly online: boolean;
+}
+
 async function postJson(path: string, body: unknown): Promise<Response> {
   return fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
@@ -290,6 +296,16 @@ export async function fetchFriends(): Promise<FriendsData | null> {
     const response = await fetch("/api/friends");
     if (!response.ok) return null;
     return (await response.json()) as FriendsData;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchFriendProfile(userId: string): Promise<FriendProfile | null> {
+  try {
+    const response = await fetch(`/api/users/${encodeURIComponent(userId)}/profile`);
+    if (!response.ok) return null;
+    return (await response.json()) as FriendProfile;
   } catch {
     return null;
   }

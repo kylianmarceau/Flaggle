@@ -604,3 +604,17 @@
   font-size: 0.8rem;
   text-align: center;
 }
+
+.lobby-panel .multiplayer-mode-dropdown {
+  width: 100%;
+  margin: -2px 0 14px;
+}
+
+.multiplayer-mode-dropdown.is-disabled .category-dropdown-summary {
+  cursor: default;
+  opacity: 0.78;
+}
+
+.multiplayer-mode-dropdown.is-disabled .category-dropdown-summary::after {
+  display: none;
+}

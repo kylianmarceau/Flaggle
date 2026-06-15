@@ -78,47 +78,90 @@ function getMultiplayerModeOption(mode: MultiplayerPlayMode): MultiplayerModeOpt
   return MULTIPLAYER_MODE_OPTIONS.find((option) => option.id === mode) ?? MULTIPLAYER_MODE_OPTIONS[0]!;
 }
 
-function createMultiplayerModeDropdown(options: {
-  readonly selectedMode: MultiplayerPlayMode;
+function modeToCategoryId(mode: MultiplayerPlayMode): string {
+  return mode === "click-country" ? "pick-country" : mode;
+}
+
+function categoryIdToMode(categoryId: string): MultiplayerPlayMode | null {
+  if (categoryId === "pick-country") return "click-country";
+  return MULTIPLAYER_MODE_IDS.includes(categoryId as MultiplayerPlayMode) ? (categoryId as MultiplayerPlayMode) : null;
+}
+
+function categoryIdsForModes(modes: readonly MultiplayerPlayMode[]): readonly string[] {
+  return [...new Set(modes.map(modeToCategoryId))];
+}
+
+function modesFromCategoryIds(categoryIds: readonly string[]): readonly MultiplayerPlayMode[] {
+  const modes = categoryIds.map(categoryIdToMode).filter((mode): mode is MultiplayerPlayMode => mode !== null);
+  return modes.length > 0 ? [...new Set(modes)] : ["flags"];
+}
+
+function modeSelectionSummary(modes: readonly MultiplayerPlayMode[]): string {
+  if (modes.length === 0) return "No modes";
+  if (modes.length === 1) return getMultiplayerModeOption(modes[0]!).label;
+  return `${modes.length} modes selected`;
+}
+
+function modeSelectionDescription(modes: readonly MultiplayerPlayMode[]): string {
+  if (modes.length === 0) return "Select at least one mode.";
+  return modes.map((mode) => getMultiplayerModeOption(mode).label).join(", ");
+}
+
+function createMultiplayerModeSelector(options: {
+  readonly selectedModes: readonly MultiplayerPlayMode[];
   readonly signal: AbortSignal;
-  readonly onChange: (mode: MultiplayerPlayMode) => void;
-}): { readonly element: HTMLElement; readonly selectedMode: () => MultiplayerPlayMode } {
-  let selectedMode = options.selectedMode;
+  readonly name: string;
+  readonly label?: string;
+  readonly onChange: (modes: readonly MultiplayerPlayMode[]) => void;
+}): { readonly element: HTMLElement; readonly selectedModes: () => readonly MultiplayerPlayMode[]; readonly setSelectedModes: (modes: readonly MultiplayerPlayMode[]) => void; readonly setDisabled: (disabled: boolean) => void } {
+  let selectedModes = modesFromCategoryIds(categoryIdsForModes(options.selectedModes));
+  let disabled = false;
+  let element: HTMLDetailsElement;
   const selectedText = el("span", { className: "category-dropdown-selected" });
   const selectedDescription = el("span", { className: "category-dropdown-selected-description" });
 
   const modeControls = MULTIPLAYER_MODE_OPTIONS.map((modeOption) => {
-    const radio = el("input", { attrs: { type: "radio", name: "multiplayer-mode", value: modeOption.id } });
-    radio.checked = modeOption.id === selectedMode;
+    const checkbox = el("input", { attrs: { type: "checkbox", name: options.name, value: modeOption.id } });
     const label = el("label", {
       className: "category-option game-mode-option",
       attrs: { title: modeOption.description },
       children: [
-        radio,
+        checkbox,
         el("span", {
           className: "game-mode-option-copy",
           children: [el("span", { className: "game-mode-option-label", text: modeOption.label }), el("span", { className: "game-mode-option-description", text: modeOption.description })],
         }),
       ],
     });
-    return { modeOption, radio, label };
+    return { modeOption, checkbox, label };
   });
 
-  function setMode(mode: MultiplayerPlayMode): void {
-    selectedMode = mode;
-    const selected = getMultiplayerModeOption(mode);
-    selectedText.textContent = selected.label;
-    selectedDescription.textContent = selected.description;
-    for (const control of modeControls) control.radio.checked = control.modeOption.id === selectedMode;
+  function setSelectedModes(modes: readonly MultiplayerPlayMode[]): void {
+    selectedModes = modesFromCategoryIds(categoryIdsForModes(modes));
+    selectedText.textContent = modeSelectionSummary(selectedModes);
+    selectedDescription.textContent = modeSelectionDescription(selectedModes);
+    for (const control of modeControls) control.checkbox.checked = selectedModes.includes(control.modeOption.id);
+  }
+
+  function setDisabled(nextDisabled: boolean): void {
+    disabled = nextDisabled;
+    element.classList.toggle("is-disabled", disabled);
+    for (const control of modeControls) control.checkbox.disabled = disabled;
+    if (disabled && element instanceof HTMLDetailsElement) element.open = false;
   }
 
   for (const control of modeControls) {
-    control.radio.addEventListener(
+    control.checkbox.addEventListener(
       "change",
       () => {
-        if (!control.radio.checked) return;
-        setMode(control.modeOption.id);
-        options.onChange(control.modeOption.id);
+        if (disabled) return;
+        const next = modeControls.filter((item) => item.checkbox.checked).map((item) => item.modeOption.id);
+        if (next.length === 0) {
+          control.checkbox.checked = true;
+          return;
+        }
+        setSelectedModes(next);
+        options.onChange(selectedModes);
       },
       { signal: options.signal },
     );
@@ -134,34 +177,43 @@ function createMultiplayerModeDropdown(options: {
     menuChildren.push(control.label);
   }
 
-  const element = el("details", {
-    className: "category-dropdown game-mode-dropdown multiplayer-mode-dropdown",
+  const summary = el("summary", {
+    className: "category-dropdown-summary",
     children: [
-      el("summary", {
-        className: "category-dropdown-summary",
-        children: [
-          el("span", { className: "category-row-label", text: "Game mode" }),
-          el("span", { className: "game-mode-selected-copy", children: [selectedText, selectedDescription] }),
-        ],
-      }),
-      el("div", { className: "category-dropdown-menu", attrs: { role: "radiogroup", "aria-label": "Multiplayer game modes" }, children: menuChildren }),
+      el("span", { className: "category-row-label", text: options.label ?? "Game modes" }),
+      el("span", { className: "game-mode-selected-copy", children: [selectedText, selectedDescription] }),
     ],
   });
-  setMode(selectedMode);
-  enhanceDropdown(element, { signal: options.signal, closeOnSelect: true });
 
-  return { element, selectedMode: () => selectedMode };
+  element = el("details", {
+    className: "category-dropdown game-mode-dropdown multiplayer-mode-dropdown",
+    children: [
+      summary,
+      el("div", { className: "category-dropdown-menu", attrs: { role: "group", "aria-label": "Multiplayer game modes" }, children: menuChildren }),
+    ],
+  });
+
+  summary.addEventListener(
+    "click",
+    (event) => {
+      if (!disabled) return;
+      event.preventDefault();
+    },
+    { signal: options.signal },
+  );
+
+  setSelectedModes(selectedModes);
+  enhanceDropdown(element, { signal: options.signal, closeOnSelect: false });
+
+  return { element, selectedModes: () => selectedModes, setSelectedModes, setDisabled };
 }
 
-function categoryIdsForMode(mode: MultiplayerPlayMode): readonly string[] {
-  return [mode === "click-country" ? "pick-country" : mode];
-}
-
-function setupCopyForMode(mode: MultiplayerPlayMode): { readonly title: string; readonly description: string } {
-  const modeOption = getMultiplayerModeOption(mode);
+function setupCopyForModes(modes: readonly MultiplayerPlayMode[]): { readonly title: string; readonly description: string } {
+  const selected: readonly MultiplayerPlayMode[] = modes.length > 0 ? modes : ["flags"];
+  const hasMapMode = selected.some((mode) => mode === "click-country" || mode === "spot-country");
   return {
-    title: mode === "click-country" || mode === "spot-country" ? "Host or join a map race" : mode === "flag-colors" ? "Host or join a flag-colour race" : "Host or join a prompt race",
-    description: `${modeOption.description} Create a room or join a code to race friends in real time.`,
+    title: hasMapMode ? "Host or join a mixed map race" : selected.length > 1 ? "Host or join a mixed prompt race" : "Host or join a prompt race",
+    description: `${modeSelectionDescription(selected)}. Create a room or join a code to race friends in real time.`,
   };
 }
 
@@ -234,22 +286,32 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
       { label: "60 sec", value: 60_000 },
     ].map((option) => el("option", { text: option.label, attrs: { value: String(option.value), ...(option.value === 30_000 ? { selected: "" } : {}) } })),
   });
-  let playMode: MultiplayerPlayMode = "flags";
-  const initialSetupCopy = setupCopyForMode(playMode);
+  let playModes: readonly MultiplayerPlayMode[] = ["flags"];
+  const initialSetupCopy = setupCopyForModes(playModes);
   const setupTitle = el("h1", { text: initialSetupCopy.title });
   const setupDescription = el("p", {
     className: "muted",
     text: initialSetupCopy.description,
   });
-  const modeDropdown = createMultiplayerModeDropdown({
-    selectedMode: playMode,
+  const modeDropdown = createMultiplayerModeSelector({
+    selectedModes: playModes,
     signal: controller.signal,
-    onChange: (mode) => {
-      playMode = mode;
-      const setupCopy = setupCopyForMode(mode);
+    name: "multiplayer-setup-mode",
+    onChange: (modes) => {
+      playModes = modes;
+      const setupCopy = setupCopyForModes(modes);
       setupTitle.textContent = setupCopy.title;
       setupDescription.textContent = setupCopy.description;
-      render();
+    },
+  });
+  const lobbyModeDropdown = createMultiplayerModeSelector({
+    selectedModes: playModes,
+    signal: controller.signal,
+    name: "multiplayer-lobby-mode",
+    label: "Room modes",
+    onChange: (modes) => {
+      if (!room || room.status !== "lobby" || localPlayerId !== room.hostPlayerId) return;
+      transport?.send({ type: "SET_ROOM_OPTIONS", categoryIds: categoryIdsForModes(modes) });
     },
   });
   const statusText = el("p", { className: "multiplayer-status", text: feedback });
@@ -283,6 +345,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
       el("p", { className: "eyebrow", text: "ROOM" }),
       el("div", { className: "room-code-row", children: [el("span", { text: "Code" }), roomCode, copyButton] }),
       roomSettings,
+      lobbyModeDropdown.element,
       playerList,
       inviteSection,
       el("div", { className: "actions", children: [readyButton, startButton, leaveButton] }),
@@ -404,7 +467,11 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
     if (!room) return;
 
     roomCode.textContent = room.roomCode;
-    roomSettings.textContent = `${room.settings.roundLimit} rounds · ${Math.round(room.settings.roundDurationMs / 1000)} sec timer`;
+    const roomModes = modesFromCategoryIds(room.categoryIds);
+    const localIsHost = localPlayerId === room.hostPlayerId;
+    lobbyModeDropdown.setSelectedModes(roomModes);
+    lobbyModeDropdown.setDisabled(room.status !== "lobby" || !localIsHost);
+    roomSettings.textContent = `${modeSelectionDescription(roomModes)} · ${room.settings.roundLimit} rounds · ${Math.round(room.settings.roundDurationMs / 1000)} sec timer`;
     playerList.replaceChildren(...createPlayerRows(room, localPlayerId));
     // Show "invite friends" only to signed-in users while waiting in the lobby. Friends are fetched
     // once per room, then re-filtered every render so anyone in the lobby is excluded live.
@@ -541,7 +608,7 @@ export function createMultiplayerLobbyScreen(options: MultiplayerLobbyScreenOpti
         transport?.send({
           type: "CREATE_ROOM",
           playerName,
-          categoryIds: categoryIdsForMode(modeDropdown.selectedMode()),
+          categoryIds: categoryIdsForModes(modeDropdown.selectedModes()),
           roundLimit: Number(roundLimitSelect.value),
           roundDurationMs: Number(roundDurationSelect.value),
         }),

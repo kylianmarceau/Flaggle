@@ -2,12 +2,14 @@ import {
   acceptFriendRequest,
   declineFriendRequest,
   fetchFriends,
+  fetchFriendProfile,
   removeFriend,
   searchUsers,
   sendFriendRequest,
   type FriendsData,
   type PublicUser,
 } from "../../core/auth";
+import { buildStats } from "./StatsScreen";
 import type { Screen } from "../../app/router";
 import { el } from "../dom/createElement";
 
@@ -31,6 +33,7 @@ function avatar(user: PublicUser): HTMLElement {
 export function createFriendsScreen(options: FriendsScreenOptions): Screen {
   let data: FriendsData = EMPTY;
   let busy = false;
+  let profileRequestId = 0;
 
   const addInput = el("input", {
     className: "friend-add-input",
@@ -47,6 +50,14 @@ export function createFriendsScreen(options: FriendsScreenOptions): Screen {
   const incomingList = el("div", { className: "friend-list" });
   const outgoingList = el("div", { className: "friend-list" });
   const friendsList = el("div", { className: "friend-list" });
+  const profileContent = el("div", { className: "stats-content friend-profile-content" });
+  const profileTitle = el("h2", { text: "Friend stats" });
+  const profileCloseButton = el("button", { className: "ghost-action friend-profile-close", text: "Close", attrs: { type: "button" } });
+  const profilePanel = el("section", {
+    className: "friend-profile-panel",
+    attrs: { hidden: "true" },
+    children: [el("header", { className: "friend-profile-header", children: [profileTitle, profileCloseButton] }), profileContent],
+  });
 
   const incomingSection = el("section", { className: "friend-section", children: [el("h2", { text: "Requests" }), incomingList] });
   const outgoingSection = el("section", { className: "friend-section", children: [el("h2", { text: "Sent" }), outgoingList] });
@@ -63,16 +74,20 @@ export function createFriendsScreen(options: FriendsScreenOptions): Screen {
       incomingSection,
       outgoingSection,
       friendsSection,
+      profilePanel,
     ],
   });
 
-  function personRow(user: PublicUser, online: boolean | null, actions: readonly HTMLElement[]): HTMLElement {
+  function personRow(user: PublicUser, online: boolean | null, actions: readonly HTMLElement[], onProfile?: () => void): HTMLElement {
     const dot = online === null ? [] : [el("span", { className: `friend-status${online ? " is-online" : ""}`, attrs: { title: online ? "Online" : "Offline" } })];
+    const nameNode = onProfile
+      ? el("button", { className: "friend-name friend-profile-link", text: user.username, attrs: { type: "button" }, on: { click: onProfile } })
+      : el("span", { className: "friend-name", text: user.username });
     return el("div", {
       className: "friend-row",
       children: [
         avatar(user),
-        el("span", { className: "friend-name", text: user.username }),
+        nameNode,
         ...dot,
         el("span", { className: "friend-actions", children: actions }),
       ],
@@ -92,6 +107,28 @@ export function createFriendsScreen(options: FriendsScreenOptions): Screen {
     } finally {
       busy = false;
     }
+  }
+
+  function showProfileLoading(user: PublicUser): number {
+    const requestId = ++profileRequestId;
+    profileTitle.textContent = `${user.username} stats`;
+    profilePanel.hidden = false;
+    profileContent.replaceChildren(el("p", { className: "stats-loading", text: "Loading stats…" }));
+    return requestId;
+  }
+
+  function openProfile(user: PublicUser): void {
+    const requestId = showProfileLoading(user);
+    void fetchFriendProfile(user.id).then((profile) => {
+      if (requestId !== profileRequestId) return;
+      if (!profile) {
+        profileContent.replaceChildren(el("p", { className: "stats-loading", text: "Could not load this profile. Make sure you are still friends." }));
+        return;
+      }
+      profileTitle.textContent = `${profile.user.avatarEmoji ?? "👤"} ${profile.user.username} ${profile.online ? "· online" : "· offline"}`;
+      buildStats(profile.stats, profileContent);
+      profilePanel.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
   }
 
   function render(): void {
@@ -117,10 +154,10 @@ export function createFriendsScreen(options: FriendsScreenOptions): Screen {
       ...(data.friends.length === 0
         ? [el("p", { className: "friend-empty", text: "No friends yet. Add someone by username above." })]
         : data.friends.map((f) => {
-            const actions: HTMLElement[] = [];
+            const actions: HTMLElement[] = [actionButton("Stats", "secondary-action", () => openProfile(f.user))];
             if (options.onInviteToGame && f.online) actions.push(actionButton("Invite", "primary-action", () => options.onInviteToGame?.(f.user)));
             actions.push(actionButton("Remove", "ghost-action", () => void act(() => removeFriend(f.user.id))));
-            return personRow(f.user, f.online, actions);
+            return personRow(f.user, f.online, actions, () => openProfile(f.user));
           })),
     );
   }
@@ -144,6 +181,12 @@ export function createFriendsScreen(options: FriendsScreenOptions): Screen {
       addFeedback.className = `friend-feedback${result.ok ? " is-good" : " is-bad"}`;
       if (result.ok) addInput.value = "";
     });
+  });
+
+  profileCloseButton.addEventListener("click", () => {
+    profileRequestId += 1;
+    profilePanel.hidden = true;
+    profileContent.replaceChildren();
   });
 
   copyFriendLinkButton.addEventListener("click", () => {

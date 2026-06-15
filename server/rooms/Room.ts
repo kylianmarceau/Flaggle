@@ -1,6 +1,6 @@
 import type { CountryId, CountryIndex } from "../../src/core/countries";
 import { createSeededRandom, shuffle } from "../../src/core/game";
-import { buildPromptSlots, getCategory, type PromptSlot } from "../../src/core/categories";
+import { buildPromptSlots, getCategory, resolveCategoryIds, type PromptSlot } from "../../src/core/categories";
 import type { FinalResult, PlayerId, PublicPlayerState, PublicRoomState, PublicRoundState, RoomCode, RoundResult, ServerMessage } from "../../src/core/multiplayer";
 
 export const DEFAULT_MAX_PLAYERS_PER_ROOM = 8;
@@ -64,11 +64,11 @@ function createPlayer(id: PlayerId, name: string): PrivatePlayerState {
 
 export class Room {
   readonly code: RoomCode;
-  readonly categoryIds: readonly string[];
+  categoryIds: readonly string[];
   readonly seed: string;
   readonly maxPlayers: number;
-  readonly roundLimit: number;
-  readonly roundDurationMs: number;
+  roundLimit: number;
+  roundDurationMs: number;
   readonly resultDisplayMs: number;
   readonly countryIndex: CountryIndex;
 
@@ -91,7 +91,7 @@ export class Room {
     this.maxPlayers = options.maxPlayers ?? DEFAULT_MAX_PLAYERS_PER_ROOM;
     this.countryIndex = options.countryIndex;
     this.hostPlayerId = options.hostPlayerId;
-    const slots = shuffle(buildPromptSlots(options.countryIndex, options.categoryIds, options.seed), createSeededRandom(options.seed));
+    const slots = this.createRoundQueue(options.categoryIds, options.seed);
     this.roundLimit = Math.min(options.roundLimit ?? DEFAULT_MULTIPLAYER_ROUND_LIMIT, slots.length);
     this.roundDurationMs = options.roundDurationMs ?? DEFAULT_ROUND_DURATION_MS;
     this.resultDisplayMs = options.resultDisplayMs ?? DEFAULT_RESULT_DISPLAY_MS;
@@ -228,7 +228,31 @@ export class Room {
     this.resultStartedAt = null;
     this.resultEndsAt = null;
     this.status = "lobby";
-    this.remainingSlots = shuffle(buildPromptSlots(this.countryIndex, this.categoryIds, `${this.seed}:${now}`), createSeededRandom(`${this.seed}:${now}`));
+    this.remainingSlots = this.createRoundQueue(this.categoryIds, `${this.seed}:${now}`);
+    return ok([this.snapshotMessage()]);
+  }
+
+  updateOptions(playerId: PlayerId, options: { readonly categoryIds: readonly string[]; readonly roundLimit?: number; readonly roundDurationMs?: number }, now: number): RoomResult {
+    this.touch(now);
+    if (playerId !== this.hostPlayerId) return fail("not-host", "Only the room host can change room settings.");
+    if (this.status !== "lobby") return fail("game-started", "Room settings can only change in the lobby.");
+
+    const nextCategoryIds = resolveCategoryIds(options.categoryIds);
+    const nextQueue = this.createRoundQueue(nextCategoryIds, `${this.seed}:settings:${now}`);
+    if (nextQueue.length === 0) return fail("invalid-category", "Those game modes do not have any playable rounds.");
+
+    this.categoryIds = nextCategoryIds;
+    if (options.roundDurationMs !== undefined) this.roundDurationMs = options.roundDurationMs;
+    const requestedRoundLimit = options.roundLimit ?? this.roundLimit;
+    this.roundLimit = Math.min(requestedRoundLimit, nextQueue.length);
+    this.remainingSlots = nextQueue;
+
+    // A mode change can substantially alter the game players agreed to; ask non-hosts to ready up
+    // again before the host starts.
+    for (const [id, player] of this.players) {
+      if (id !== this.hostPlayerId) this.players.set(id, { ...player, ready: false });
+    }
+
     return ok([this.snapshotMessage()]);
   }
 
@@ -301,6 +325,10 @@ export class Room {
 
   private snapshotMessage(): ServerMessage {
     return { type: "ROOM_SNAPSHOT", room: this.snapshot() };
+  }
+
+  private createRoundQueue(categoryIds: readonly string[], seed: string): PromptSlot[] {
+    return [...shuffle(buildPromptSlots(this.countryIndex, categoryIds, seed), createSeededRandom(seed))];
   }
 
   private beginNextRound(now: number): PublicRoundState | null {

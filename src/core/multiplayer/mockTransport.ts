@@ -167,6 +167,24 @@ export function createMockMultiplayerTransport(): MultiplayerTransport {
         return;
       }
 
+      if (message.type === "SET_ROOM_OPTIONS") {
+        if (room.status !== "lobby" || assignedPlayerId !== room.hostPlayerId) {
+          emit({ type: "ERROR", code: "not-host", message: "Only the host can change modes in the lobby." });
+          return;
+        }
+        room = {
+          ...room,
+          categoryIds: [...message.categoryIds],
+          settings: {
+            roundLimit: message.roundLimit ?? room.settings.roundLimit,
+            roundDurationMs: message.roundDurationMs ?? room.settings.roundDurationMs,
+          },
+          players: room.players.map((player) => ({ ...player, ready: player.id === room.hostPlayerId ? player.ready : false })),
+        };
+        emitSnapshot();
+        return;
+      }
+
       if (message.type === "START_GAME") {
         clearAdvanceTimer();
         room = { ...room, players: room.players.map((player) => ({ ...player, score: 0, streak: 0, correctAnswers: 0, wrongAnswers: 0 })) };

@@ -425,6 +425,28 @@ describe("room manager", () => {
     expect(host.messages.some((message) => message.type === "ROUND_STARTED")).toBe(true);
   });
 
+  it("lets the host change room modes in the lobby and unreadies guests", () => {
+    const room = new Room({ code: "ABCDE", hostPlayerId: "host", hostName: "Host", countryIndex, categoryIds: ["flags"], seed: "shared-seed", now: 1000, roundLimit: 3 });
+    expect(room.addPlayer("guest", "Guest", 1010).ok).toBe(true);
+    expect(room.setReady("guest", true, 1020).ok).toBe(true);
+
+    const update = room.updateOptions("host", { categoryIds: ["codes", "spot-country"], roundLimit: 2 }, 1030);
+    expect(update.ok).toBe(true);
+    const snapshot = room.snapshot();
+    expect(snapshot.categoryIds).toEqual(["codes", "spot-country"]);
+    expect(snapshot.settings.roundLimit).toBe(2);
+    expect(snapshot.players.find((player) => player.id === "guest")?.ready).toBe(false);
+  });
+
+  it("rejects non-host or in-progress room mode changes", () => {
+    const room = new Room({ code: "ABCDE", hostPlayerId: "host", hostName: "Host", countryIndex, categoryIds: ["flags"], seed: "shared-seed", now: 1000, roundLimit: 3 });
+    expect(room.addPlayer("guest", "Guest", 1010).ok).toBe(true);
+    expect(room.updateOptions("guest", { categoryIds: ["codes"] }, 1020).ok).toBe(false);
+    expect(room.setReady("guest", true, 1030).ok).toBe(true);
+    expect(room.startGame("host", 1040).ok).toBe(true);
+    expect(room.updateOptions("host", { categoryIds: ["codes"] }, 1050).ok).toBe(false);
+  });
+
   it("routes PLAY_AGAIN to the room and surfaces the not-complete guard", () => {
     const manager = new RoomManager({ countryIndex });
     const host = new TestConnection();
