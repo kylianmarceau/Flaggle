@@ -61,6 +61,10 @@ function countryForGuess(index: CountryIndex, answer: string): Country | null {
   return null;
 }
 
+function shouldAutoFocusInput(): boolean {
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches && window.innerWidth > 700;
+}
+
 export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   const controller = new AbortController();
   const { countryIndex, engine } = options;
@@ -294,7 +298,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     applyEvents(events);
     render(persist);
     if (events.some((event) => event.type === "GUESS_CORRECT")) input.value = "";
-    if (engine.getState().status === "playing") input.focus();
+    if (engine.getState().status === "playing" && shouldAutoFocusInput()) input.focus();
     if (isDailyChallenge) completeDailyIfNeeded(events);
   }
 

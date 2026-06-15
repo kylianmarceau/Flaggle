@@ -40,6 +40,10 @@ export interface CountryGuessingScreenOptions {
 type CountryGuessPlayMode = WorldMapGameModeId;
 type MapSurface = "flat" | "globe";
 
+function shouldAutoFocusInput(): boolean {
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches && window.innerWidth > 700;
+}
+
 function createLogo(): HTMLElement {
   return el("div", {
     className: "brand-lockup compact",
@@ -266,7 +270,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     playTimer.reset();
     render();
     showFeedback(feedback, feedbackMessage, "neutral");
-    if (playMode === "name-all" || playMode === "spot-country") input.focus();
+    if ((playMode === "name-all" || playMode === "spot-country") && shouldAutoFocusInput()) input.focus();
   }
 
   function recordGuess(country: Country): void {
@@ -764,7 +768,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
           : "Start typing country names. Matches highlight instantly on the map.",
     "neutral",
   );
-  if (playMode === "name-all" || playMode === "spot-country") queueMicrotask(() => input.focus());
+  if ((playMode === "name-all" || playMode === "spot-country") && shouldAutoFocusInput()) queueMicrotask(() => input.focus());
 
   return {
     element,
