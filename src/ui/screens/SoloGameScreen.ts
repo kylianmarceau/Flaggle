@@ -1,5 +1,5 @@
 import type { AuthUser } from "../../core/auth";
-import { isCorrectAnswer, type Country, type CountryIndex } from "../../core/countries";
+import { isCorrectAnswer, type Country, type CountryId, type CountryIndex } from "../../core/countries";
 import { getCategory } from "../../core/categories";
 import { DAILY_COUNTRY_COUNT, scoreDailyRound, type DailyRoundMark } from "../../core/dailyChallenge";
 import { isPromptGameModeId, type GameModeId } from "../../core/gameModes";
@@ -120,6 +120,8 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
 
   let playTimer: PlayTimer;
   let activeFlagColorTarget: string | null = null;
+  let activeMapPromptKey: string | null = null;
+  const cleanDailyMapCountryIds: ReadonlySet<CountryId> = new Set();
   const dailyMap =
     options.worldCountryFeatures && options.worldCountryFeatures.length > 0
       ? createWorldMapView(options.worldCountryFeatures, countryIndex, {
@@ -238,6 +240,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   });
 
   function resetRun(message: string): void {
+    activeMapPromptKey = null;
     setAtlasOpen(atlas, false);
     updateAtlasView(atlas, countries, new Set());
     options.onReset();
@@ -260,16 +263,26 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
         el("div", {
           className: "daily-map-prompt",
           children: [
-            el("div", { className: "prompt-text daily-map-prompt-text", text: content.kind === "map-click" ? `Click ${content.value}` : "Spot the highlighted country" }),
+            el("div", { className: "prompt-text daily-map-prompt-text", text: content.kind === "map-click" ? `Click ${content.value}` : "Which country is this?" }),
             dailyMap.element,
           ],
         }),
       );
-      updateWorldMapView(dailyMap, state.guessedCountryIds, countries.length);
       const targetId = current?.id ?? null;
+      const mapPromptKey = `${state.roundNumber}:${content.kind}:${targetId ?? "none"}`;
+      updateWorldMapView(dailyMap, isDailyChallenge ? cleanDailyMapCountryIds : state.guessedCountryIds, countries.length);
       setWorldMapTargetCountry(dailyMap, content.kind === "map-highlight" ? targetId : null);
-      if (content.kind === "map-highlight" && targetId !== null) dailyMap.focusCountry(targetId);
+      if (activeMapPromptKey !== mapPromptKey) {
+        activeMapPromptKey = mapPromptKey;
+        dailyMap.showCountryLabel(null);
+        if (content.kind === "map-highlight" && targetId !== null) {
+          dailyMap.focusCountry(targetId, { animate: false });
+        } else {
+          dailyMap.resetView({ animate: false });
+        }
+      }
     } else if (content?.kind === "flag-colors") {
+      activeMapPromptKey = null;
       prompt.status.textContent = `Round ${state.roundNumber}`;
       prompt.kicker.textContent = category?.label ?? "Flag colours";
       if (activeFlagColorTarget !== content.value) {
@@ -279,6 +292,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
       prompt.imageSlot.replaceChildren(flagColorReveal.element);
     } else {
       activeFlagColorTarget = null;
+      activeMapPromptKey = null;
       if (dailyMap) setWorldMapTargetCountry(dailyMap, null);
       updatePromptView(prompt, content, state.roundNumber, category?.label ?? "Prompt");
     }
