@@ -109,6 +109,7 @@ const streetViewPool = new StreetViewLocationPool({
   refreshHours: readIntegerEnv("STREETVIEW_REFRESH_HOURS", 24),
   metadataRadiusMeters: readIntegerEnv("STREETVIEW_METADATA_RADIUS_METERS", 1000),
 });
+streetViewPool.warm();
 
 // Hourly cleanup of expired session rows; cheap and keeps the table from growing unbounded.
 setInterval(() => authService.pruneExpiredSessions(), 60 * 60 * 1000).unref?.();
@@ -150,6 +151,18 @@ const server = Bun.serve<WebSocketData>({
       } catch (error) {
         console.warn(JSON.stringify({ time: new Date().toISOString(), level: "warn", action: "streetview.round.failed", error: error instanceof Error ? error.message : String(error) }));
         return json({ error: "Street View round unavailable." }, 503);
+      }
+    }
+
+    if (url.pathname === "/api/streetview-country/rounds" && method === "GET") {
+      try {
+        const fallbackCount = readIntegerEnv("STREETVIEW_CLIENT_CACHE_SIZE", 5);
+        const parsedCount = Number.parseInt(url.searchParams.get("count") ?? String(fallbackCount), 10);
+        const count = Number.isFinite(parsedCount) ? parsedCount : fallbackCount;
+        return json(await streetViewPool.createRounds(count));
+      } catch (error) {
+        console.warn(JSON.stringify({ time: new Date().toISOString(), level: "warn", action: "streetview.rounds.failed", error: error instanceof Error ? error.message : String(error) }));
+        return json({ error: "Street View rounds unavailable." }, 503);
       }
     }
 

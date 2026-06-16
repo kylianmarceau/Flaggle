@@ -15,6 +15,8 @@ export interface StreetViewCountryScreenOptions {
 
 type RoundStatus = "playing" | "won" | "lost";
 
+const ROUND_CACHE_TARGET_SIZE = 5;
+
 function createLogo(): HTMLElement {
   return el("div", {
     className: "brand-lockup compact",
@@ -61,14 +63,28 @@ function isStreetViewRound(value: unknown, countryIndex: CountryIndex): value is
   return countryIndex.byCode.has(value.countryCode) && value.frames.length === 3 && value.frames.every(isStreetViewFrame);
 }
 
-async function fetchStreetViewRound(countryIndex: CountryIndex, signal: AbortSignal): Promise<StreetViewCountryRound | null> {
+function isStreetViewRoundList(value: unknown, countryIndex: CountryIndex): value is StreetViewCountryRound[] {
+  return Array.isArray(value) && value.every((item) => isStreetViewRound(item, countryIndex));
+}
+
+async function fetchStreetViewRounds(countryIndex: CountryIndex, count: number, signal: AbortSignal): Promise<StreetViewCountryRound[]> {
+  try {
+    const response = await fetch(`/api/streetview-country/rounds?count=${encodeURIComponent(String(count))}`, { cache: "no-store", signal });
+    if (response.ok) {
+      const data: unknown = await response.json();
+      if (isStreetViewRoundList(data, countryIndex)) return data;
+    }
+  } catch {
+    // The Vite dev server can run without the Bun backend. In that case, the game silently uses bundled fallback rounds.
+  }
+
   try {
     const response = await fetch("/api/streetview-country/round", { cache: "no-store", signal });
-    if (!response.ok) return null;
+    if (!response.ok) return [];
     const data: unknown = await response.json();
-    return isStreetViewRound(data, countryIndex) ? data : null;
+    return isStreetViewRound(data, countryIndex) ? [data] : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -91,11 +107,14 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
   const apiKey = googleMapsEmbedApiKey();
   const maxAttempts = 3;
   const guessedCountryIds = new Set<CountryId>();
+  const roundCache: StreetViewCountryRound[] = [];
   let status: RoundStatus = "playing";
   let attemptIndex = 0;
   let round = chooseRound(options.countryIndex);
   let loadingRound = false;
-  let roundRequestId = 0;
+  let currentStreetViewUrl = "";
+  let currentPreloadUrl = "";
+  let cachePromise: Promise<void> | null = null;
 
   function targetCountry(): Country {
     const country = options.countryIndex.byCode.get(round.countryCode);
@@ -110,6 +129,15 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
       loading: "lazy",
       referrerpolicy: "no-referrer-when-downgrade",
       allowfullscreen: "true",
+    },
+  });
+  const preloadIframe = el("iframe", {
+    className: "streetview-preload-frame",
+    attrs: {
+      title: "Preloaded Street View frame",
+      tabindex: "-1",
+      "aria-hidden": "true",
+      referrerpolicy: "no-referrer-when-downgrade",
     },
   });
   const missingKeyPanel = el("div", {
@@ -166,7 +194,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
 
   const streetViewPanel = el("div", {
     className: "streetview-stage",
-    children: [iframe, missingKeyPanel],
+    children: [iframe, preloadIframe, missingKeyPanel],
   });
 
   const element = el("section", {
@@ -218,41 +246,83 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
     iframe.hidden = !apiKey;
     if (apiKey) {
       const nextSrc = buildStreetViewEmbedUrl(apiKey, round, attemptIndex);
-      if (iframe.getAttribute("src") !== nextSrc) iframe.setAttribute("src", nextSrc);
+      if (nextSrc !== currentStreetViewUrl) {
+        currentStreetViewUrl = nextSrc;
+        iframe.setAttribute("src", nextSrc);
+      }
+    } else {
+      currentStreetViewUrl = "";
+      iframe.removeAttribute("src");
     }
+
+    preloadNextRoundFrame();
   }
 
-  function resetCurrentCountry(message = "Fresh attempt. Guess the country from the first frame."): void {
+  function resetCurrentCountry(message?: string, tone: "neutral" | "good" | "bad" = "neutral"): void {
     guessedCountryIds.clear();
     status = "playing";
     attemptIndex = 0;
     input.value = "";
     render();
-    showFeedback(feedback, message, "neutral");
+    if (message) showFeedback(feedback, message, tone);
     input.focus();
   }
 
-  async function loadRoundFromPool(message: string): Promise<void> {
-    const requestId = ++roundRequestId;
-    loadingRound = true;
-    render();
-    showFeedback(feedback, "Loading a Street View pool round...", "neutral");
-    const serverRound = await fetchStreetViewRound(options.countryIndex, controller.signal);
-    if (controller.signal.aborted || requestId !== roundRequestId) return;
-    loadingRound = false;
-    if (serverRound) {
-      round = serverRound;
-      resetCurrentCountry(message);
+  function preloadNextRoundFrame(): void {
+    if (!apiKey || roundCache.length === 0) {
+      preloadIframe.removeAttribute("src");
+      currentPreloadUrl = "";
       return;
     }
-    render();
-    showFeedback(feedback, "Using the bundled fallback pool because the Street View pool API is unavailable.", "neutral");
+
+    const nextUrl = buildStreetViewEmbedUrl(apiKey, roundCache[0]!, 0);
+    if (nextUrl !== currentPreloadUrl) {
+      currentPreloadUrl = nextUrl;
+      preloadIframe.setAttribute("src", nextUrl);
+    }
   }
 
-  function startNextRound(message = "Preparing the next country..."): void {
-    round = chooseRound(options.countryIndex);
-    resetCurrentCountry(message);
-    void loadRoundFromPool("Loaded a fresh country from the Street View pool.");
+  async function fillRoundCache(): Promise<void> {
+    if (!apiKey || controller.signal.aborted) return;
+    if (cachePromise) return cachePromise;
+
+    const needed = ROUND_CACHE_TARGET_SIZE - roundCache.length;
+    if (needed <= 0) {
+      preloadNextRoundFrame();
+      return;
+    }
+
+    cachePromise = fetchStreetViewRounds(options.countryIndex, needed, controller.signal)
+      .then((rounds) => {
+        for (const candidate of rounds) {
+          if (roundCache.length >= ROUND_CACHE_TARGET_SIZE) break;
+          roundCache.push(candidate);
+        }
+        preloadNextRoundFrame();
+      })
+      .finally(() => {
+        cachePromise = null;
+      });
+
+    return cachePromise;
+  }
+
+  function warmRoundCache(): void {
+    void fillRoundCache();
+  }
+
+  function takeCachedRound(): StreetViewCountryRound | null {
+    const cached = roundCache.shift() ?? null;
+    preloadNextRoundFrame();
+    warmRoundCache();
+    return cached;
+  }
+
+  function startNextRound(message = "Next country loaded.", tone: "neutral" | "good" | "bad" = "neutral"): void {
+    const cachedRound = takeCachedRound();
+    round = cachedRound ?? chooseRound(options.countryIndex);
+    lastStreetViewCountryCode = round.countryCode;
+    resetCurrentCountry(message, tone);
   }
 
   function handleGuess(): void {
@@ -269,7 +339,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
 
     if (guess.code === round.countryCode) {
       const countryName = targetCountry().name;
-      startNextRound(`Correct — ${countryName}. Loading the next country...`);
+      startNextRound(`Correct — ${countryName}. Next country loaded.`, "good");
       return;
     }
 
@@ -295,7 +365,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
     { signal: controller.signal },
   );
   nextRoundButton.addEventListener("click", () => startNextRound(), { signal: controller.signal });
-  restartButton.addEventListener("click", () => resetCurrentCountry(), { signal: controller.signal });
+  restartButton.addEventListener("click", () => resetCurrentCountry("Fresh attempt. Guess the country from the first frame."), { signal: controller.signal });
   revealButton.addEventListener(
     "click",
     () => {
@@ -309,8 +379,8 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
   multiplayerButton.addEventListener("click", options.onMultiplayer, { signal: controller.signal });
 
   render();
-  showFeedback(feedback, apiKey ? "Guess the country. You can move, pan, and zoom inside the Street View frame." : "Add your Google Maps Embed API key to enable Street View frames.", "neutral");
-  void loadRoundFromPool("Loaded a fresh country from the Street View pool.");
+  if (!apiKey) showFeedback(feedback, "Add your Google Maps Embed API key to enable Street View frames.", "neutral");
+  warmRoundCache();
   queueMicrotask(() => input.focus());
 
   return { element, destroy: () => controller.abort() };

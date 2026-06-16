@@ -46,6 +46,7 @@ export interface StreetViewLocationPoolStats {
   readonly dailyGenerateCount: number;
   readonly lastGeneratedAt: string | null;
   readonly metadataConfigured: boolean;
+  readonly refreshInProgress: boolean;
 }
 
 const DEFAULT_MAX_ENTRIES = 500;
@@ -53,6 +54,7 @@ const DEFAULT_DAILY_GENERATE_COUNT = 50;
 const DEFAULT_REFRESH_HOURS = 24;
 const DEFAULT_METADATA_RADIUS_METERS = 1000;
 const EARTH_KM_PER_LATITUDE_DEGREE = 111;
+const MAX_ROUNDS_PER_BATCH = 10;
 
 const fallbackFrames = streetViewCountryRounds.flatMap((round) => round.frames.map((frame) => ({ countryCode: round.countryCode, frame })));
 
@@ -124,7 +126,7 @@ export class StreetViewLocationPool {
   private readonly dailyGenerateCount: number;
   private readonly refreshHours: number;
   private readonly metadataRadiusMeters: number;
-  private readonly generationPromise: Promise<StreetViewPoolFile> | null = null;
+  private generationPromise: Promise<StreetViewPoolFile> | null = null;
   private lastCountryCode: string | null = null;
 
   constructor(options: StreetViewLocationPoolOptions) {
@@ -145,11 +147,29 @@ export class StreetViewLocationPool {
       dailyGenerateCount: this.dailyGenerateCount,
       lastGeneratedAt: pool.lastGeneratedAt,
       metadataConfigured: this.metadataApiKey.length > 0,
+      refreshInProgress: this.generationPromise !== null,
     };
   }
 
   async createRound(): Promise<StreetViewCountryRound> {
-    const pool = await this.ensureFreshPool();
+    const pool = await this.loadPool();
+    this.refreshInBackgroundIfNeeded(pool);
+    return this.createRoundFromPool(pool);
+  }
+
+  async createRounds(count: number): Promise<StreetViewCountryRound[]> {
+    const requestedCount = Number.isFinite(count) ? Math.trunc(count) : 1;
+    const safeCount = Math.min(Math.max(requestedCount, 1), MAX_ROUNDS_PER_BATCH);
+    const pool = await this.loadPool();
+    this.refreshInBackgroundIfNeeded(pool);
+    return Array.from({ length: safeCount }, () => this.createRoundFromPool(pool));
+  }
+
+  warm(): void {
+    void this.loadPool().then((pool) => this.refreshInBackgroundIfNeeded(pool));
+  }
+
+  private createRoundFromPool(pool: StreetViewPoolFile): StreetViewCountryRound {
     const countries = shuffle([...new Set(pool.entries.map((entry) => entry.countryCode))]);
     const availableCountries = this.lastCountryCode && countries.length > 1 ? countries.filter((countryCode) => countryCode !== this.lastCountryCode) : countries;
 
@@ -166,14 +186,21 @@ export class StreetViewLocationPool {
     return fallback;
   }
 
-  private async ensureFreshPool(): Promise<StreetViewPoolFile> {
-    if (this.generationPromise) return this.generationPromise;
-    const pool = await this.loadPool();
-    if (!this.shouldRefresh(pool) || this.metadataApiKey.length === 0) return pool;
-    return this.generateAndSave(pool);
+  private refreshInBackgroundIfNeeded(pool: StreetViewPoolFile): void {
+    if (this.generationPromise || this.metadataApiKey.length === 0 || !this.shouldRefresh(pool)) return;
+
+    this.generationPromise = this.generateAndSave(pool)
+      .catch((error: unknown) => {
+        console.warn(JSON.stringify({ time: new Date().toISOString(), level: "warn", action: "streetview.pool.refresh.failed", error: error instanceof Error ? error.message : String(error) }));
+        return pool;
+      })
+      .finally(() => {
+        this.generationPromise = null;
+      });
   }
 
   private shouldRefresh(pool: StreetViewPoolFile): boolean {
+    if (pool.entries.length === 0) return true;
     if (!pool.lastGeneratedAt) return true;
     const last = Date.parse(pool.lastGeneratedAt);
     if (!Number.isFinite(last)) return true;
