@@ -38,7 +38,11 @@ export function enhanceDropdown(
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     const usableWidth = Math.max(0, viewportWidth - DROPDOWN_MARGIN_PX * 2);
-    const width = Math.min(Math.max(summaryRect.width, 280), DROPDOWN_MAX_WIDTH_PX, usableWidth);
+    const isGameModeMenu = dropdown.classList.contains("game-mode-dropdown");
+    const isActionMenu = dropdown.classList.contains("action-menu");
+    const minWidth = isGameModeMenu ? 560 : isActionMenu ? 220 : 280;
+    const maxWidth = isGameModeMenu ? 640 : isActionMenu ? 280 : DROPDOWN_MAX_WIDTH_PX;
+    const width = Math.min(Math.max(summaryRect.width, minWidth), maxWidth, usableWidth);
     const left = clamp(summaryRect.right - width, DROPDOWN_MARGIN_PX, viewportWidth - width - DROPDOWN_MARGIN_PX);
     const spaceBelow = viewportHeight - summaryRect.bottom - DROPDOWN_GAP_PX - DROPDOWN_MARGIN_PX;
     const spaceAbove = summaryRect.top - DROPDOWN_GAP_PX - DROPDOWN_MARGIN_PX;

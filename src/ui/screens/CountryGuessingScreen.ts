@@ -8,6 +8,7 @@ import { createPlayTimer, formatElapsedTime, formatStoredTime, type PlayTimer, t
 import { recordWorldAchievements, type Achievement } from "../../storage/achievements";
 import type { Screen } from "../../app/router";
 import { el } from "../dom/createElement";
+import { createActionMenu } from "../dom/actionMenu";
 import { createGameModeDropdown } from "../dom/gameModeDropdown";
 import { createAtlasView, setAtlasOpen, updateAtlasView } from "../dom/renderAtlas";
 import { createFeedbackView, showFeedback } from "../dom/renderFeedback";
@@ -595,8 +596,6 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   const mapSurfaceButton = el("button", { className: "ghost-action", text: "3D globe", attrs: { type: "button", "aria-pressed": "false" } });
   const giveUpButton = el("button", { className: "ghost-action", text: "Give up", attrs: { type: "button" } });
   const checkPuzzleButton = el("button", { className: "primary-action puzzle-check-button", text: "Check accuracy", attrs: { type: "button" } });
-  const multiplayerButton = el("button", { className: "ghost-action", text: "Multiplayer", attrs: { type: "button" } });
-  const leaderboardButton = el("button", { className: "ghost-action", text: "Leaderboards", attrs: { type: "button" } });
   const gameModeDropdown = createGameModeDropdown({
     selectedMode: playMode,
     signal: controller.signal,
@@ -607,6 +606,14 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
       }
       options.onGameModeChange(gameMode);
     },
+  });
+  const headerMenu = createActionMenu({
+    label: "More",
+    signal: controller.signal,
+    items: [
+      { label: "Leaderboards", description: "Compare your best map runs", onSelect: options.onLeaderboard },
+      { label: "Multiplayer", description: "Create or join a room", onSelect: options.onMultiplayer },
+    ],
   });
   playTimer = createPlayTimer({
     storage: options.storage,
@@ -716,8 +723,6 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
     },
     { signal: controller.signal },
   );
-  multiplayerButton.addEventListener("click", options.onMultiplayer, { signal: controller.signal });
-  leaderboardButton.addEventListener("click", options.onLeaderboard, { signal: controller.signal });
   atlas.openButton.addEventListener("click", () => setAtlasOpen(atlas, true), { signal: controller.signal });
   atlas.closeButton.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
   atlas.overlay.addEventListener("click", () => setAtlasOpen(atlas, false), { signal: controller.signal });
@@ -729,7 +734,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
         className: "game-header",
         children: [
           el("div", { className: "game-header-left", children: [createLogo(), gameModeDropdown.element] }),
-          el("div", { className: "game-header-actions", children: [leaderboardButton, multiplayerButton] }),
+          el("div", { className: "game-header-actions", children: [headerMenu] }),
         ],
       }),
       el("div", {

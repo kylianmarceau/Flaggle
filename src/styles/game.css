@@ -3,7 +3,7 @@
   justify-content: space-between;
   gap: 18px;
   align-items: flex-start;
-  margin-bottom: clamp(10px, 1.6dvh, 16px);
+  margin-bottom: clamp(8px, 1.2dvh, 12px);
   flex: 0 0 auto;
 }
 
@@ -66,7 +66,7 @@
 }
 
 .game-mode-dropdown .category-dropdown-summary {
-  min-height: 58px;
+  min-height: 44px;
 }
 
 .category-dropdown-summary:hover,
@@ -118,7 +118,7 @@
   border: 1px solid rgba(232, 226, 211, 0.14);
   border-radius: var(--radius-md);
   display: grid;
-  gap: 7px;
+  gap: 8px;
   background:
     radial-gradient(circle at 20% 0%, rgba(184, 227, 109, 0.12), transparent 45%),
     rgba(16, 20, 16, 0.98);
@@ -1281,7 +1281,7 @@
 .game-header-actions {
   display: flex;
   align-items: stretch;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -1293,16 +1293,21 @@
 .game-header-actions {
   flex: 0 0 auto;
   justify-content: flex-end;
-  /* The persistent auth button is fixed in the same header row; keep this space free so it cannot overlap navigation buttons. */
-  padding-right: 98px;
+  /* The persistent auth button is fixed beside this row; keep a small safe area so menus never overlap it. */
+  padding-right: 74px;
 }
 
 .game-mode-dropdown {
-  width: min(390px, 100%);
+  width: min(340px, 100%);
 }
 
 .game-mode-dropdown .category-dropdown-menu {
-  width: var(--dropdown-width, min(430px, calc(100vw - 24px)));
+  width: var(--dropdown-width, min(640px, calc(100vw - 24px)));
+  align-items: start;
+}
+
+.game-mode-dropdown .category-dropdown-menu:has(.game-mode-group) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .game-mode-selected-copy {
@@ -1312,18 +1317,28 @@
   text-align: right;
 }
 
+.game-mode-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid rgba(232, 226, 211, 0.08);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025);
+}
+
 .game-mode-group-label {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 780;
   letter-spacing: 0.06em;
-  padding: 4px 4px 0;
+  padding: 2px 4px 1px;
   text-transform: uppercase;
 }
 
 .game-mode-option {
   align-items: flex-start;
-  min-height: 52px;
+  min-height: 48px;
 }
 
 .game-mode-option input {
@@ -1416,4 +1431,56 @@
 .solo-timer-stats {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 12px;
+}
+
+
+/* Compact secondary navigation. Keeps core gameplay controls visible while moving rarely-used links out of the header. */
+.action-menu {
+  width: auto;
+}
+
+.action-menu-summary {
+  min-height: 40px;
+  min-width: 92px;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 12px 0 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.action-menu-summary .category-dropdown-selected {
+  font-size: 0.88rem;
+  font-weight: 780;
+}
+
+.action-menu-panel {
+  gap: 6px;
+}
+
+.action-menu-option {
+  width: 100%;
+  min-height: 44px;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.action-menu-option-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.action-menu-option-copy strong {
+  font-size: 0.9rem;
+  line-height: 1.15;
+}
+
+.action-menu-option-copy span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
+.category-picker-menu {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }

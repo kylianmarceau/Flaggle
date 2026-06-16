@@ -87,6 +87,11 @@
     width: 100%;
   }
 
+  .action-menu {
+    width: auto;
+    align-self: flex-start;
+  }
+
   .category-dropdown-menu {
     left: 0;
     right: 0;
@@ -386,6 +391,16 @@
     left: max(10px, env(safe-area-inset-left));
     width: auto;
     max-height: min(70svh, 440px);
+  }
+
+  .game-mode-dropdown .category-dropdown-menu:has(.game-mode-group),
+  .category-picker-menu {
+    grid-template-columns: 1fr;
+  }
+
+  .action-menu-panel {
+    left: auto;
+    width: min(280px, calc(100vw - 20px));
   }
 }
 
