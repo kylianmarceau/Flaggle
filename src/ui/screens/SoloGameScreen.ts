@@ -11,7 +11,6 @@ import { createPlayTimer, formatElapsedTime, formatStoredTime, type PlayTimer, t
 import { recordSoloAchievements, type Achievement } from "../../storage/achievements";
 import type { Screen } from "../../app/router";
 import type { AuthControls } from "../components/AuthPanel";
-import { createActionMenu } from "../dom/actionMenu";
 import { createGameModeDropdown } from "../dom/gameModeDropdown";
 import { el } from "../dom/createElement";
 import { createAtlasView, setAtlasOpen, updateAtlasView, type AtlasView } from "../dom/renderAtlas";
@@ -90,7 +89,10 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
   const hintButton = el("button", { className: "secondary-action", text: "Hint", attrs: { type: "button" } });
   const skipButton = el("button", { className: "secondary-action", text: "Skip", attrs: { type: "button" } });
   const resetButton = el("button", { className: "ghost-action", text: "Restart", attrs: { type: "button" } });
+  const multiplayerButton = el("button", { className: "ghost-action", text: "Multiplayer", attrs: { type: "button" } });
+  const dailyButton = el("button", { className: "ghost-action daily-action", text: "Daily Challenge", attrs: { type: "button", ...(isDailyChallenge ? { disabled: "" } : {}) } });
   const exitDailyButton = el("button", { className: "ghost-action", text: "Back to modes", attrs: { type: "button" } });
+  const leaderboardButton = el("button", { className: "ghost-action", text: "Leaderboards", attrs: { type: "button" } });
   const timerModeSelect = el("select", {
     className: "country-guess-timer-select",
     attrs: { id: "solo-timer-mode", name: "timerMode", "aria-label": "Solo timer mode" },
@@ -232,17 +234,6 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     },
   });
 
-  const headerMenu = createActionMenu({
-    label: "More",
-    signal: controller.signal,
-    items: [
-      isDailyChallenge
-        ? { label: "Back to modes", description: "Return to your solo game", onSelect: () => options.onExitDailyChallenge?.() }
-        : { label: "Daily challenge", description: "One shared puzzle today", onSelect: options.onDailyChallenge },
-      { label: "Leaderboards", description: "Compare your best runs", onSelect: options.onLeaderboard },
-      { label: "Multiplayer", description: "Create or join a room", onSelect: options.onMultiplayer },
-    ],
-  });
 
   const form = el("form", {
     className: "guess-form",
@@ -420,7 +411,10 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
     },
     { signal: controller.signal },
   );
+  multiplayerButton.addEventListener("click", options.onMultiplayer, { signal: controller.signal });
+  dailyButton.addEventListener("click", options.onDailyChallenge, { signal: controller.signal });
   exitDailyButton.addEventListener("click", () => options.onExitDailyChallenge?.(), { signal: controller.signal });
+  leaderboardButton.addEventListener("click", options.onLeaderboard, { signal: controller.signal });
 
   document.addEventListener(
     "keydown",
@@ -455,7 +449,10 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
         className: "game-header",
         children: [
           el("div", { className: "game-header-left", children: [logo, isDailyChallenge ? el("div", { className: "daily-badge", text: `Daily ${options.dailyChallenge?.date ?? ""}` }) : gameModeDropdown.element] }),
-          el("div", { className: "game-header-actions", children: [headerMenu, ...(options.authControls ? [options.authControls.trigger] : [])] }),
+          el("div", {
+            className: "game-header-actions",
+            children: [dailyButton, leaderboardButton, multiplayerButton, ...(options.authControls ? [options.authControls.trigger] : [])],
+          }),
         ],
       }),
       el("div", {
