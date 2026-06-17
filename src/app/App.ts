@@ -197,16 +197,18 @@ export function createApp(options: AppOptions): App {
   async function startDailyChallenge(): Promise<void> {
     const run = navigationRun;
     const challenge = createDailyChallenge(options.countryIndex);
-    const localResult = readDailyResult(options.storage, challenge.date);
+    const activeUser = authControls.getUser();
+    const activeUserId = activeUser?.id ?? null;
+    const localResult = readDailyResult(options.storage, challenge.date, activeUserId);
 
-    if (authControls.getUser()) {
+    if (activeUserId) {
       mount(createLoadingScreen("Loading Daily Challenge..."));
       const accountResult = await fetchDailyChallengeResult(challenge.date);
-      if (run !== navigationRun) return;
+      if (run !== navigationRun || authControls.getUser()?.id !== activeUserId) return;
 
       if (accountResult) {
         const result = dailyAccountResultToLocal(accountResult);
-        saveDailyResult(options.storage, result);
+        saveDailyResult(options.storage, result, activeUserId);
         mountDailyResult(result);
         return;
       }
@@ -214,9 +216,9 @@ export function createApp(options: AppOptions): App {
       if (localResult) {
         mountDailyResult(localResult);
         void saveDailyChallengeResult(dailyLocalResultToAccount(localResult)).then((synced) => {
-          if (!synced || run !== navigationRun) return;
+          if (!synced || run !== navigationRun || authControls.getUser()?.id !== activeUserId) return;
           const result = dailyAccountResultToLocal(synced);
-          saveDailyResult(options.storage, result);
+          saveDailyResult(options.storage, result, activeUserId);
           mountDailyResult(result);
         });
         return;
@@ -272,14 +274,15 @@ export function createApp(options: AppOptions): App {
               hintsUsed: dailyResult.hintsUsed,
               marks: dailyResult.marks,
             });
-            saveDailyResult(options.storage, result);
+            const completionUserId = authControls.getUser()?.id ?? null;
+            saveDailyResult(options.storage, result, completionUserId);
             mountDailyResult(result);
-            if (authControls.getUser()) {
+            if (completionUserId) {
               const completionRun = navigationRun;
               void saveDailyChallengeResult(dailyLocalResultToAccount(result)).then((synced) => {
-                if (!synced || completionRun !== navigationRun) return;
+                if (!synced || completionRun !== navigationRun || authControls.getUser()?.id !== completionUserId) return;
                 const accountResult = dailyAccountResultToLocal(synced);
-                saveDailyResult(options.storage, accountResult);
+                saveDailyResult(options.storage, accountResult, completionUserId);
                 mountDailyResult(accountResult);
               });
             }
