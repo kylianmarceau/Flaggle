@@ -1725,17 +1725,21 @@
   height: calc(100% + (var(--streetview-ui-crop-y) * 2));
   min-height: 0;
   border: 0;
+  background: #060806;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.streetview-frame.is-active {
+  z-index: 2;
+  opacity: 1;
   pointer-events: auto;
 }
 
-.streetview-preload-frame {
-  position: absolute;
-  top: 0;
-  left: -2px;
-  width: 1px;
-  height: 1px;
-  border: 0;
-  opacity: 0;
+.streetview-frame.is-buffer {
+  z-index: 1;
+  opacity: 0.01;
   pointer-events: none;
 }
 
