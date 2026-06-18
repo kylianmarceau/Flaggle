@@ -200,7 +200,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
   const submitButton = el("button", { className: "primary-action", text: "Guess", attrs: { type: "submit" } });
   const nextRoundButton = el("button", { className: "primary-action", text: "Next round", attrs: { type: "button" } });
   const fullscreenButton = el("button", { className: "ghost-action streetview-fullscreen-action", text: "Fullscreen", attrs: { type: "button", "aria-pressed": "false" } });
-  const restartButton = el("button", { className: "ghost-action", text: "Restart country", attrs: { type: "button" } });
+  const restartButton = el("button", { className: "ghost-action", text: "Restart", attrs: { type: "button" } });
   const revealButton = el("button", { className: "ghost-action", text: "Reveal", attrs: { type: "button" } });
   const dailyButton = el("button", { className: "ghost-action nav-action daily-action", text: "Daily Challenge", attrs: { type: "button", "data-mobile-label": "Daily", "aria-label": "Open daily challenge" } });
   const multiplayerButton = el("button", { className: "ghost-action nav-action", text: "Multiplayer", attrs: { type: "button", "data-mobile-label": "Multi", "aria-label": "Open multiplayer" } });
@@ -215,6 +215,23 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
     controller.signal,
   );
   const feedback = createFeedbackView();
+  const loadingOverlay = el("div", {
+    className: "streetview-loader",
+    attrs: { role: "status", "aria-live": "polite", "aria-atomic": "true", "aria-hidden": "true" },
+    children: [
+      el("div", {
+        className: "streetview-loader-orbit",
+        attrs: { "aria-hidden": "true" },
+        children: [
+          el("span", { className: "streetview-loader-ring" }),
+          el("span", { className: "streetview-loader-ring is-delayed" }),
+          el("span", { className: "streetview-loader-sweep" }),
+          el("span", { className: "streetview-loader-pin" }),
+        ],
+      }),
+      el("span", { className: "streetview-loader-status", text: "Loading Street View" }),
+    ],
+  });
 
   const gameModeDropdown = createGameModeDropdown({
     selectedMode: "streetview-country",
@@ -241,7 +258,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
 
   const streetViewPanel = el("div", {
     className: "streetview-stage",
-    children: [...streetViewIframes, missingKeyPanel],
+    children: [...streetViewIframes, missingKeyPanel, loadingOverlay],
   });
 
   const element = el("section", {
@@ -283,19 +300,24 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
   function updateControls(): void {
     const attemptsUsed = attemptIndex + 1;
     element.classList.toggle("is-streetview-fullscreen", streetViewFullscreen);
-    fullscreenButton.textContent = streetViewFullscreen ? "Exit fullscreen" : "Fullscreen";
+    fullscreenButton.textContent = streetViewFullscreen ? "Exit" : "Fullscreen";
     fullscreenButton.setAttribute("aria-pressed", String(streetViewFullscreen));
     frameNumber.textContent = `${attemptsUsed} / ${maxAttempts}`;
     guessesLeft.textContent = String(Math.max(0, maxAttempts - guessedCountryIds.size));
     previousGuesses.textContent = previousGuessText();
+    const showLoader = Boolean(apiKey && loadingRound);
     submitButton.disabled = status !== "playing" || !apiKey || loadingRound;
     input.disabled = status !== "playing" || !apiKey || loadingRound;
     restartButton.disabled = loadingRound;
     revealButton.disabled = status !== "playing" || loadingRound;
     nextRoundButton.hidden = status === "playing";
-    nextRoundButton.textContent = loadingRound ? "Loading..." : "Next round";
+    nextRoundButton.textContent = loadingRound ? "Loading" : streetViewFullscreen ? "Next" : "Next round";
     roundResult.textContent = status === "won" ? `Correct — ${targetCountry().name}.` : status === "lost" ? `Answer — ${targetCountry().name}.` : "";
     missingKeyPanel.hidden = Boolean(apiKey);
+    loadingOverlay.classList.toggle("is-active", showLoader);
+    loadingOverlay.setAttribute("aria-hidden", String(!showLoader));
+    streetViewPanel.classList.toggle("is-loading", showLoader);
+    streetViewPanel.setAttribute("aria-busy", String(showLoader));
     for (const iframe of streetViewIframes) iframe.hidden = !apiKey;
   }
 

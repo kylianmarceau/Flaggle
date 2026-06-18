@@ -931,6 +931,24 @@
     overflow: hidden;
   }
 
+  .streetview-country-screen.is-streetview-fullscreen .game-header {
+    display: flex;
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    left: max(8px, env(safe-area-inset-left));
+    z-index: 940;
+    width: auto;
+    margin: 0;
+    padding: 6px;
+    border-radius: 16px;
+    transform: none;
+  }
+
+  .streetview-country-screen.is-streetview-fullscreen .game-header-left {
+    padding-right: 68px;
+  }
+
   .streetview-country-screen.is-streetview-fullscreen .streetview-layout,
   .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .streetview-layout {
     position: fixed;
@@ -953,30 +971,22 @@
   .streetview-country-screen.is-streetview-fullscreen .streetview-panel,
   .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .streetview-panel {
     position: fixed;
-    right: max(10px, env(safe-area-inset-right));
-    bottom: calc(var(--keyboard-offset, 0px) + max(10px, env(safe-area-inset-bottom)));
-    left: max(10px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: calc(var(--keyboard-offset, 0px) + max(8px, env(safe-area-inset-bottom)));
+    left: max(8px, env(safe-area-inset-left));
     z-index: 930;
     display: grid;
+    gap: 6px;
     width: auto;
-    max-height: min(58svh, 440px);
-    padding: 10px;
+    max-height: none;
+    padding: 7px;
+    border-radius: 16px;
     transform: none;
   }
 
-  .streetview-country-screen.is-streetview-fullscreen .streetview-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .streetview-country-screen.is-streetview-fullscreen .streetview-stats .previous-guesses-card {
-    grid-column: 1 / -1;
-  }
-
-  .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .panel-title,
-  .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .streetview-rules,
-  .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .streetview-stats,
-  .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .feedback,
-  .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .streetview-result {
+  .streetview-country-screen.is-streetview-fullscreen .panel-title,
+  .streetview-country-screen.is-streetview-fullscreen .streetview-rules,
+  .streetview-country-screen.is-streetview-fullscreen.is-mobile-typing .feedback {
     display: none;
   }
 
@@ -990,14 +1000,24 @@
     box-shadow: none;
   }
 
+  .streetview-country-screen.is-streetview-fullscreen .input-row input,
+  .streetview-country-screen.is-streetview-fullscreen .input-row button {
+    min-height: 40px;
+  }
+
   .streetview-country-screen.is-streetview-fullscreen .streetview-panel .actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 7px;
+    display: flex;
+    grid-template-columns: none;
+    flex-wrap: nowrap;
+    gap: 5px;
+    overflow-x: auto;
   }
 
   .streetview-country-screen.is-streetview-fullscreen .streetview-panel .actions button {
-    width: 100%;
+    width: auto;
+    min-width: 68px;
+    min-height: 31px;
+    padding-inline: 10px;
   }
 
 }
