@@ -964,31 +964,6 @@
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
 }
 
-.world-map-meta {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  display: flex;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.world-map-meta span {
-  min-width: 82px;
-  padding: 7px 9px;
-  border: 1px solid rgba(232, 226, 211, 0.12);
-  border-radius: var(--radius-sm);
-  background: rgba(6, 8, 6, 0.72);
-  backdrop-filter: blur(10px);
-}
-
-.world-map-meta strong {
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
 .country-guess-panel {
   width: 100%;
 }

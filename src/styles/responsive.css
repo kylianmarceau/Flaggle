@@ -167,17 +167,6 @@
     min-height: clamp(260px, 48dvh, 430px);
   }
 
-  .world-map-meta {
-    position: static;
-    padding: 8px;
-    flex-wrap: wrap;
-    background: rgba(6, 8, 6, 0.72);
-  }
-
-  .world-map-meta span {
-    flex: 1 1 118px;
-  }
-
   .country-guess-panel {
     width: 100%;
   }

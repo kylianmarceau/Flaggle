@@ -275,10 +275,6 @@
   height: 100%;
 }
 
-.multiplayer-map-panel .world-map-meta {
-  display: none;
-}
-
 .multiplayer-map-panel.is-disabled .world-map-svg {
   pointer-events: none;
 }

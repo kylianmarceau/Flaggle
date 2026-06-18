@@ -207,7 +207,7 @@ export function createCountryGuessingScreen(options: CountryGuessingScreenOption
   }
 
   function render(): void {
-    updateWorldMapView(map, guessedCountryIds, countryIndex.countries.length);
+    updateWorldMapView(map, guessedCountryIds);
     const finished = roundEnded();
     const targetActive = (playMode === "click-country" || playMode === "spot-country") && !finished;
     setWorldMapTargetCountry(map, playMode === "spot-country" && targetCountryId !== null && targetActive ? targetCountryId : null);

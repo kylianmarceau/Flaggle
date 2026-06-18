@@ -347,7 +347,7 @@ export function createSoloGameScreen(options: SoloGameScreenOptions): Screen {
       );
       const targetId = current?.id ?? null;
       const mapPromptKey = `${state.roundNumber}:${content.kind}:${targetId ?? "none"}`;
-      updateWorldMapView(dailyMap, isDailyChallenge ? cleanDailyMapCountryIds : state.guessedCountryIds, countries.length);
+      updateWorldMapView(dailyMap, isDailyChallenge ? cleanDailyMapCountryIds : state.guessedCountryIds);
       setWorldMapTargetCountry(dailyMap, content.kind === "map-highlight" ? targetId : null);
       if (activeMapPromptKey !== mapPromptKey) {
         activeMapPromptKey = mapPromptKey;
