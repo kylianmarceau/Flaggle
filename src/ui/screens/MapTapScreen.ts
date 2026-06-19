@@ -1,5 +1,5 @@
 import type { Screen } from "../../app/router";
-import { fetchMapTapRound, fetchWikipediaSummary, MAP_TAP_DEFAULT_DECAY_KM, validateMapTapGuess, type MapTapCategory, type MapTapDifficulty, type MapTapGuessResult, type MapTapRoundTarget } from "../../core/maptap";
+import { fetchMapTapRound, fetchWikipediaSummary, isValidLatLng, MAP_TAP_DEFAULT_DECAY_KM, MAP_TAP_MAX_SCORE, normalizeLongitude, scoreMapTapGuess, validateMapTapGuess, type MapTapCategory, type MapTapDifficulty, type MapTapGuessResult, type MapTapLocation, type MapTapRoundTarget } from "../../core/maptap";
 import type { GameModeId } from "../../core/gameModes";
 import { el } from "../dom/createElement";
 import { createGameModeDropdown } from "../dom/gameModeDropdown";
@@ -10,6 +10,11 @@ export interface MapTapScreenOptions {
   readonly onGameModeChange: (gameMode: GameModeId) => void;
   readonly onMultiplayer?: () => void;
   readonly onDailyChallenge?: () => void;
+  readonly dailyChallenge?: {
+    readonly date: string;
+    readonly target: MapTapLocation;
+    readonly onComplete: (result: MapTapGuessResult) => void;
+  };
 }
 
 const CATEGORIES: readonly { readonly value: "" | MapTapCategory; readonly label: string }[] = [
@@ -50,10 +55,11 @@ function optionNodes<T extends string>(items: readonly { readonly value: T; read
 
 export function createMapTapScreen(options: MapTapScreenOptions): Screen {
   const controller = new AbortController();
+  const isDailyChallenge = options.dailyChallenge !== undefined;
   let activeTarget: MapTapRoundTarget | null = null;
   let activeResult: MapTapGuessResult | null = null;
   let isSubmitting = false;
-
+  let dailyCompleted = false;
   const gameModeDropdown = createGameModeDropdown({
     selectedMode: "map-tap",
     signal: controller.signal,
@@ -107,11 +113,11 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
   }
 
   function setControlsDisabled(disabled: boolean): void {
-    categorySelect.disabled = disabled;
-    difficultySelect.disabled = disabled;
-    decayInput.disabled = disabled;
+    categorySelect.disabled = disabled || isDailyChallenge;
+    difficultySelect.disabled = disabled || isDailyChallenge;
+    decayInput.disabled = disabled || isDailyChallenge;
     newRoundButton.disabled = disabled;
-    resetButton.disabled = disabled || activeResult === null;
+    resetButton.disabled = disabled || activeResult === null || isDailyChallenge;
   }
 
   function renderTarget(target: MapTapRoundTarget | null): void {
@@ -126,6 +132,7 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
 
   function renderResult(result: MapTapGuessResult): void {
     resultPanel.hidden = false;
+    newRoundButton.textContent = isDailyChallenge ? "Continue daily challenge" : "Next target";
     resultPanel.replaceChildren(
       newRoundButton,
       el("div", { className: "maptap-result-score", children: [el("span", { text: "Score" }), el("strong", { text: `${result.score.toLocaleString()}/${result.maxScore.toLocaleString()}` })] }),
@@ -147,7 +154,7 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
     renderTarget(null);
     statusText.textContent = "Loading a target...";
 
-    const target = await fetchMapTapRound({ category: selectedCategory(), difficulty: selectedDifficulty() });
+    const target = options.dailyChallenge?.target ?? (await fetchMapTapRound({ category: selectedCategory(), difficulty: selectedDifficulty() }));
     if (controller.signal.aborted) return;
 
     if (!target) {
@@ -158,10 +165,26 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
 
     activeTarget = target;
     renderTarget(target);
-    statusText.textContent = "Rotate or zoom the globe, then click once as close as you can.";
+    statusText.textContent = isDailyChallenge ? "Daily MapTap: click once as close as you can." : "Rotate or zoom the globe, then click once as close as you can.";
     globe.reset();
     globe.setAcceptingGuesses(true);
     setControlsDisabled(false);
+  }
+
+  function buildDailyResult(point: MapTapClick): MapTapGuessResult | null {
+    const target = options.dailyChallenge?.target;
+    if (!target) return null;
+    const guess = { lat: point.lat, lng: normalizeLongitude(point.lng) };
+    if (!isValidLatLng(guess)) return null;
+    const scored = scoreMapTapGuess(guess, target, selectedDecayKm());
+    return {
+      target,
+      guess,
+      distanceKm: Math.round(scored.distanceKm * 10) / 10,
+      score: scored.score,
+      maxScore: MAP_TAP_MAX_SCORE,
+      decayKm: scored.decayKm,
+    };
   }
 
   async function submitGuess(point: MapTapClick): Promise<void> {
@@ -171,12 +194,14 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
     setControlsDisabled(true);
     statusText.textContent = "Checking your guess...";
 
-    const result = await validateMapTapGuess({
-      targetId: activeTarget.id,
-      guessLat: point.lat,
-      guessLng: point.lng,
-      decayKm: selectedDecayKm(),
-    });
+    const result = options.dailyChallenge
+      ? buildDailyResult(point)
+      : await validateMapTapGuess({
+          targetId: activeTarget.id,
+          guessLat: point.lat,
+          guessLng: point.lng,
+          decayKm: selectedDecayKm(),
+        });
     if (controller.signal.aborted) return;
 
     isSubmitting = false;
@@ -190,7 +215,7 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
 
     activeResult = result;
     setControlsDisabled(false);
-    statusText.textContent = "Result revealed.";
+    statusText.textContent = isDailyChallenge ? "Result revealed. Continue to the next daily round." : "Result revealed.";
     globe.reveal(result);
     renderResult(result);
     void fetchWikipediaSummary(result.target.wikiSlug, controller.signal).then((summary) => {
@@ -210,7 +235,15 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
     globe.setAcceptingGuesses(activeTarget !== null);
     setControlsDisabled(false);
   }, { signal: controller.signal });
-  newRoundButton.addEventListener("click", () => void loadRound(), { signal: controller.signal });
+  newRoundButton.addEventListener("click", () => {
+    if (isDailyChallenge) {
+      if (!activeResult || dailyCompleted) return;
+      dailyCompleted = true;
+      options.dailyChallenge?.onComplete(activeResult);
+      return;
+    }
+    void loadRound();
+  }, { signal: controller.signal });
   dailyButton.addEventListener("click", () => options.onDailyChallenge?.(), { signal: controller.signal });
   multiplayerButton.addEventListener("click", () => options.onMultiplayer?.(), { signal: controller.signal });
 
@@ -235,13 +268,14 @@ export function createMapTapScreen(options: MapTapScreenOptions): Screen {
               statusText,
               el("div", {
                 className: "maptap-filters",
+                attrs: isDailyChallenge ? { hidden: "true" } : {},
                 children: [
                   el("label", { children: [el("span", { className: "stat-label", text: "Category" }), categorySelect] }),
                   el("label", { children: [el("span", { className: "stat-label", text: "Difficulty" }), difficultySelect] }),
                   el("label", { children: [el("span", { className: "stat-label", text: "Decay km" }), decayInput] }),
                 ],
               }),
-              el("div", { className: "maptap-actions", children: [resetButton] }),
+              el("div", { className: "maptap-actions", attrs: isDailyChallenge ? { hidden: "true" } : {}, children: [resetButton] }),
               resultPanel,
             ],
           }),

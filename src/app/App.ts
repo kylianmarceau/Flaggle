@@ -1,6 +1,6 @@
 import { type CountryId, type CountryIndex } from "../core/countries";
 import { createGameEngine, createRandomSeed, type GameEngine, type GameState } from "../core/game";
-import { createDailyChallenge, createDailyShareText } from "../core/dailyChallenge";
+import { createDailyChallenge, createDailyShareText, DAILY_COUNTRY_COUNT, DAILY_MAX_SCORE, DAILY_POINTS_PER_ROUND, scoreDailyMapTapRound, scoreDailyRound, type DailyRoundMark } from "../core/dailyChallenge";
 import { DEFAULT_CATEGORY_IDS, resolveCategoryIds } from "../core/categories";
 import { isMapTapGameModeId, isPromptGameModeId, isStreetViewGameModeId, isWorldMapGameModeId, promptGameModeFromCategoryIds, type GameModeId, type WorldMapGameModeId } from "../core/gameModes";
 import { clearSoloSave, hydrateGameState, readSoloSave, saveSoloGame } from "../storage/localSave";
@@ -10,6 +10,8 @@ import { loadWorldCountryFeatures, type WorldCountryFeature } from "../core/map"
 import { fetchDailyChallengeResult, recordGame, saveDailyChallengeResult, type DailyChallengeResult } from "../core/auth";
 import { createCountryGuessingScreen, type WorldMapRunResult } from "../ui/screens/CountryGuessingScreen";
 import { createStreetViewCountryScreen } from "../ui/screens/StreetViewCountryScreen";
+import { findMapTapLocation } from "../core/maptap/locations";
+import { streetViewCountryRounds } from "../core/streetview";
 import { createDailyResultScreen } from "../ui/screens/DailyResultScreen";
 import { createAuthControls } from "../ui/components/AuthPanel";
 import { createSoloGameScreen } from "../ui/screens/SoloGameScreen";
@@ -239,12 +241,107 @@ export function createApp(options: AppOptions): App {
     }
     if (run !== navigationRun) return;
 
+    const dailyStartedAt = Date.now();
+    let dailyScore = 0;
+    let dailyHintsUsed = 0;
+    const dailyMarks: DailyRoundMark[] = [];
+
+    function normalizedDailyMarks(): readonly DailyRoundMark[] {
+      const marks = dailyMarks.slice(0, DAILY_COUNTRY_COUNT);
+      while (marks.length < DAILY_COUNTRY_COUNT) marks.push("miss");
+      return marks;
+    }
+
+    function addDailyMark(mark: DailyRoundMark): void {
+      if (dailyMarks.length < DAILY_COUNTRY_COUNT) dailyMarks.push(mark);
+    }
+
+    function finishDailyChallenge(): void {
+      const result = createDailyResultSave({
+        date: challenge.date,
+        seed: challenge.seed,
+        score: Math.max(0, Math.min(DAILY_MAX_SCORE, dailyScore)),
+        timeMs: Math.max(0, Date.now() - dailyStartedAt),
+        hintsUsed: dailyHintsUsed,
+        marks: normalizedDailyMarks(),
+      });
+      const completionUserId = authControls.getUser()?.id ?? null;
+      saveDailyResult(options.storage, result, completionUserId);
+      mountDailyResult(result);
+      if (completionUserId) {
+        const completionRun = navigationRun;
+        void saveDailyChallengeResult(dailyLocalResultToAccount(result)).then((synced) => {
+          if (!synced || completionRun !== navigationRun || authControls.getUser()?.id !== completionUserId) return;
+          const accountResult = dailyAccountResultToLocal(synced);
+          saveDailyResult(options.storage, accountResult, completionUserId);
+          mountDailyResult(accountResult);
+        });
+      }
+    }
+
+    function startDailyStreetViewRound(): void {
+      const round = streetViewCountryRounds.find((item) => item.countryCode === challenge.streetViewCountryCode && options.countryIndex.byCode.has(item.countryCode));
+      if (!round) {
+        addDailyMark("miss");
+        finishDailyChallenge();
+        return;
+      }
+
+      mount(
+        createStreetViewCountryScreen({
+          countryIndex: options.countryIndex,
+          onGameModeChange: (gameMode) => handleGameModeChange(gameMode),
+          onMultiplayer: () => navigate({ type: "multiplayer" }),
+          onDailyChallenge: () => navigate({ type: "daily-challenge" }),
+          dailyChallenge: {
+            date: challenge.date,
+            round,
+            onComplete: ({ missed, wrongGuesses }) => {
+              dailyScore += scoreDailyRound(0, missed, wrongGuesses);
+              addDailyMark(missed ? "miss" : wrongGuesses > 0 ? "hint" : "correct");
+              finishDailyChallenge();
+            },
+          },
+        }),
+      );
+    }
+
+    async function startDailyMapTapRound(): Promise<void> {
+      const location = findMapTapLocation(challenge.mapTapTargetId);
+      if (!location) {
+        addDailyMark("miss");
+        startDailyStreetViewRound();
+        return;
+      }
+
+      const { createMapTapScreen } = await import("../ui/screens/MapTapScreen");
+      if (run !== navigationRun) return;
+
+      mount(
+        createMapTapScreen({
+          onGameModeChange: (gameMode) => handleGameModeChange(gameMode),
+          onMultiplayer: () => navigate({ type: "multiplayer" }),
+          onDailyChallenge: () => navigate({ type: "daily-challenge" }),
+          dailyChallenge: {
+            date: challenge.date,
+            target: location,
+            onComplete: (mapTapResult) => {
+              const points = scoreDailyMapTapRound(mapTapResult.score, mapTapResult.maxScore);
+              dailyScore += points;
+              addDailyMark(points >= DAILY_POINTS_PER_ROUND ? "correct" : points > 0 ? "hint" : "miss");
+              startDailyStreetViewRound();
+            },
+          },
+        }),
+      );
+    }
+
     const engine = createGameEngine({
       countryIndex: options.countryIndex,
       categoryIds: challenge.categoryIds,
       seed: challenge.seed,
       poolCountryIds: challenge.countryIds,
-      now: Date.now(),
+      now: dailyStartedAt,
     });
 
     mount(
@@ -266,26 +363,10 @@ export function createApp(options: AppOptions): App {
         dailyChallenge: {
           date: challenge.date,
           onComplete: (dailyResult) => {
-            const result = createDailyResultSave({
-              date: challenge.date,
-              seed: challenge.seed,
-              score: dailyResult.score,
-              timeMs: dailyResult.timeMs,
-              hintsUsed: dailyResult.hintsUsed,
-              marks: dailyResult.marks,
-            });
-            const completionUserId = authControls.getUser()?.id ?? null;
-            saveDailyResult(options.storage, result, completionUserId);
-            mountDailyResult(result);
-            if (completionUserId) {
-              const completionRun = navigationRun;
-              void saveDailyChallengeResult(dailyLocalResultToAccount(result)).then((synced) => {
-                if (!synced || completionRun !== navigationRun || authControls.getUser()?.id !== completionUserId) return;
-                const accountResult = dailyAccountResultToLocal(synced);
-                saveDailyResult(options.storage, accountResult, completionUserId);
-                mountDailyResult(accountResult);
-              });
-            }
+            dailyScore += dailyResult.score;
+            dailyHintsUsed += dailyResult.hintsUsed;
+            for (const mark of dailyResult.marks) addDailyMark(mark);
+            void startDailyMapTapRound();
           },
         },
       }),
@@ -377,8 +458,7 @@ export function createApp(options: AppOptions): App {
 
   async function startMapTap(): Promise<void> {
     const run = navigationRun;
-    const loading = createLoadingScreen("Loading MapTap...");
-    mount(loading);
+    mount(createLoadingScreen("Loading MapTap..."));
 
     const { createMapTapScreen } = await import("../ui/screens/MapTapScreen");
     if (run !== navigationRun) return;

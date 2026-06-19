@@ -14,6 +14,11 @@ export interface StreetViewCountryScreenOptions {
   readonly onGameModeChange: (gameMode: GameModeId) => void;
   readonly onMultiplayer: () => void;
   readonly onDailyChallenge: () => void;
+  readonly dailyChallenge?: {
+    readonly date: string;
+    readonly round: StreetViewCountryRound;
+    readonly onComplete: (result: { readonly missed: boolean; readonly wrongGuesses: number }) => void;
+  };
 }
 
 type RoundStatus = "playing" | "won" | "lost";
@@ -148,12 +153,14 @@ function setStreetViewIframeActive(iframe: HTMLIFrameElement, isActive: boolean)
 export function createStreetViewCountryScreen(options: StreetViewCountryScreenOptions): Screen {
   const controller = new AbortController();
   const apiKey = googleMapsEmbedApiKey();
+  const isDailyChallenge = options.dailyChallenge !== undefined;
   const maxAttempts = 3;
   const guessedCountryIds = new Set<CountryId>();
   const roundCache: StreetViewCountryRound[] = [];
   let status: RoundStatus = "playing";
   let attemptIndex = 0;
-  let round = chooseRound(options.countryIndex);
+  let round = options.dailyChallenge?.round ?? chooseRound(options.countryIndex);
+  let dailyCompleted = false;
   let loadingRound = false;
   let activeStreetViewUrl = "";
   let desiredStreetViewUrl = "";
@@ -306,11 +313,11 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
     guessesLeft.textContent = String(Math.max(0, maxAttempts - guessedCountryIds.size));
     previousGuesses.textContent = previousGuessText();
     const showLoader = Boolean(apiKey && loadingRound);
-    submitButton.disabled = status !== "playing" || !apiKey || loadingRound;
-    input.disabled = status !== "playing" || !apiKey || loadingRound;
-    restartButton.disabled = loadingRound;
-    revealButton.disabled = status !== "playing" || loadingRound;
-    nextRoundButton.hidden = status === "playing";
+    submitButton.disabled = status !== "playing" || !apiKey || loadingRound || dailyCompleted;
+    input.disabled = status !== "playing" || !apiKey || loadingRound || dailyCompleted;
+    restartButton.disabled = loadingRound || isDailyChallenge;
+    revealButton.disabled = status !== "playing" || loadingRound || dailyCompleted;
+    nextRoundButton.hidden = isDailyChallenge || status === "playing";
     nextRoundButton.textContent = loadingRound ? "Loading" : streetViewFullscreen ? "Next" : "Next round";
     roundResult.textContent = status === "won" ? `Correct — ${targetCountry().name}.` : status === "lost" ? `Answer — ${targetCountry().name}.` : "";
     missingKeyPanel.hidden = Boolean(apiKey);
@@ -520,7 +527,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
   }
 
   async function fillRoundCache(): Promise<void> {
-    if (!apiKey || controller.signal.aborted) return;
+    if (isDailyChallenge || !apiKey || controller.signal.aborted) return;
     if (cachePromise) return cachePromise;
 
     const needed = ROUND_CACHE_TARGET_SIZE - roundCache.length;
@@ -545,7 +552,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
   }
 
   function warmRoundCache(): void {
-    void fillRoundCache();
+    if (!isDailyChallenge) void fillRoundCache();
   }
 
   function takeCachedRound(): StreetViewCountryRound | null {
@@ -559,6 +566,12 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
     round = cachedRound ?? chooseRound(options.countryIndex);
     lastStreetViewCountryCode = round.countryCode;
     resetCurrentCountry(message, tone);
+  }
+
+  function completeDailyStreetView(missed: boolean, wrongGuesses: number): void {
+    if (!options.dailyChallenge || dailyCompleted) return;
+    dailyCompleted = true;
+    options.dailyChallenge.onComplete({ missed, wrongGuesses });
   }
 
   function handleGuess(): void {
@@ -575,6 +588,13 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
 
     if (guess.code === round.countryCode) {
       const countryName = targetCountry().name;
+      if (isDailyChallenge) {
+        status = "won";
+        render();
+        showFeedback(feedback, `Correct — ${countryName}.`, "good");
+        completeDailyStreetView(false, attemptIndex);
+        return;
+      }
       startNextRound(`Correct — ${countryName}. Next country loaded.`, "good");
       return;
     }
@@ -583,6 +603,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
       status = "lost";
       render();
       showFeedback(feedback, `Not ${guess.name}. No guesses left.`, "bad");
+      completeDailyStreetView(true, maxAttempts);
       return;
     }
 
@@ -627,6 +648,7 @@ export function createStreetViewCountryScreen(options: StreetViewCountryScreenOp
       status = "lost";
       render();
       showFeedback(feedback, `Revealed: ${targetCountry().name}.`, "neutral");
+      completeDailyStreetView(true, attemptIndex);
     },
     { signal: controller.signal },
   );
