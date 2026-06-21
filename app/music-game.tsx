@@ -27,6 +27,18 @@ function formatPoints(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+const ENABLE_SPOTIFY_API = process.env.NEXT_PUBLIC_ENABLE_SPOTIFY_API !== "false";
+const PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
+function withBasePath(url: string) {
+  if (/^(https?:|data:|blob:)/.test(url)) {
+    return url;
+  }
+
+  const normalizedUrl = url.startsWith("/") ? url : `/${url}`;
+  return `${PUBLIC_BASE_PATH}${normalizedUrl}`;
+}
+
 export function MusicGame() {
   const [selectedGenre, setSelectedGenre] = useState<TrackGenre | null>(null);
   const [roundTracks, setRoundTracks] = useState<Track[]>([]);
@@ -78,7 +90,25 @@ export function MusicGame() {
   }
 
   async function loadGenreTracks(genre: TrackGenre) {
-    const response = await fetch(`/api/spotify/tracks?genre=${encodeURIComponent(genre)}`);
+    if (!ENABLE_SPOTIFY_API) {
+      const demoTracks = tracksForGenre(genre);
+
+      setGenreTracks((current) => ({
+        ...current,
+        [genre]: demoTracks,
+      }));
+      setCatalogSource("demo");
+
+      return {
+        tracks: demoTracks,
+        source: "demo" as const,
+        warning: "Static deployment: Spotify API is disabled, so demo tracks were loaded.",
+      };
+    }
+
+    const response = await fetch(
+      withBasePath(`/api/spotify/tracks?genre=${encodeURIComponent(genre)}`),
+    );
     const payload = (await response.json()) as {
       source?: "demo" | "spotify";
       warning?: string;
@@ -108,7 +138,9 @@ export function MusicGame() {
     setIsLoadingGenre(true);
     setFeedback({
       tone: "neutral",
-      message: `Loading ${genre} tracks from Spotify.`,
+      message: ENABLE_SPOTIFY_API
+        ? `Loading ${genre} tracks from Spotify.`
+        : `Loading ${genre} demo tracks.`,
     });
 
     let tracks = genreTracks[genre];
@@ -156,7 +188,7 @@ export function MusicGame() {
     }
 
     stopAudio();
-    audioRef.current.src = currentTrack.audioUrl;
+    audioRef.current.src = withBasePath(currentTrack.audioUrl);
     audioRef.current.currentTime = 0;
     setIsPlaying(true);
 
@@ -551,7 +583,7 @@ function GenrePanel({
                     isSelected ? "text-white/60" : "text-stone-500"
                   }`}
                 >
-                  Spotify-powered run
+                  Spotify/demo run
                 </span>
               </span>
               <span
