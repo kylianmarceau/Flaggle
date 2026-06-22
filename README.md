@@ -1,6 +1,6 @@
 # Needle Drop
 
-A genre-based music snippet guessing game built with vinext and React.
+A genre-based music snippet guessing game built with Next.js and React.
 
 ## Play Locally
 
@@ -29,3 +29,48 @@ node scripts/generate-demo-audio.mjs
 
 The demo audio is synthetic and safe to bundle. Replace the catalog entries and
 `audioUrl` values later if you add licensed uploads or external previews.
+
+## Spotify Previews
+
+The app can fetch Spotify search results from `/api/spotify/tracks` when these
+environment variables are set:
+
+```bash
+SPOTIFY_CLIENT_ID=...
+SPOTIFY_CLIENT_SECRET=...
+```
+
+If the credentials are missing, or if Spotify does not return enough playable
+preview URLs, the game falls back to the bundled demo clips.
+
+## Hosting On AWS Amplify
+
+1. Push this repo to GitHub, GitLab, Bitbucket, or AWS CodeCommit.
+2. In AWS Amplify, create a new app and connect the repository branch you want
+   to deploy.
+3. Keep the included `amplify.yml` build settings, or paste these settings into
+   the Amplify console:
+
+```yaml
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci
+    build:
+      commands:
+        - npm run build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - "**/*"
+  cache:
+    paths:
+      - node_modules/**/*
+      - .next/cache/**/*
+```
+
+4. Add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in Amplify environment
+   variables if you want live Spotify-backed rounds.
+5. Deploy the branch. Amplify will run the build and host the Next.js app.
