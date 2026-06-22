@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   GENRES,
   RoundResult,
@@ -20,7 +20,17 @@ type Feedback = {
 };
 
 function shuffleTracks(tracks: Track[]) {
-  return [...tracks].sort(() => Math.random() - 0.5).slice(0, ROUND_COUNT);
+  const shuffled = [...tracks];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [
+      shuffled[swapIndex],
+      shuffled[index],
+    ];
+  }
+
+  return shuffled.slice(0, ROUND_COUNT);
 }
 
 function formatPoints(value: number) {
@@ -62,6 +72,14 @@ export function MusicGame() {
   const progress = selectedGenre
     ? Math.min(((roundIndex + 1) / ROUND_COUNT) * 100, 100)
     : 0;
+
+  useEffect(() => {
+    return () => {
+      if (stopTimerRef.current !== null) {
+        window.clearTimeout(stopTimerRef.current);
+      }
+    };
+  }, []);
 
   function stopAudio() {
     if (stopTimerRef.current !== null) {
@@ -386,7 +404,7 @@ export function MusicGame() {
                         onChange={(event) => setGuess(event.target.value)}
                         placeholder="Song title"
                         list="song-options"
-                      disabled={isComplete}
+                        disabled={isComplete}
                       />
                       <datalist id="song-options">
                         {answerOptions.map((title) => (
@@ -397,7 +415,7 @@ export function MusicGame() {
                     <button
                       className="h-14 rounded-[8px] bg-emerald-400 px-6 font-black text-stone-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-55"
                       type="submit"
-                    disabled={!guess.trim() || isComplete}
+                      disabled={!guess.trim() || isComplete}
                     >
                       Guess
                     </button>
@@ -438,7 +456,7 @@ export function MusicGame() {
             ) : (
               <div className="flex min-h-[520px] items-center justify-center rounded-[8px] border border-white/10 bg-white/8 p-8 text-center">
                 <div>
-                <p className="text-sm font-bold uppercase tracking-[0.18em] text-amber-200">
+                  <p className="text-sm font-bold uppercase tracking-[0.18em] text-amber-200">
                     {isLoadingGenre ? "Loading" : "Ready"}
                   </p>
                   <p className="mt-4 text-4xl font-black leading-tight">
