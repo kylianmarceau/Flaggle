@@ -42,8 +42,11 @@ type SpotifySearchResponse = {
 
 type ITunesSearchResponse = {
   results?: Array<{
+    trackId?: number;
     trackName?: string;
     artistName?: string;
+    artworkUrl100?: string;
+    collectionViewUrl?: string;
     previewUrl?: string;
   }>;
 };
@@ -67,6 +70,15 @@ const TRACK_COLORS = [
   "#f43f5e",
   "#2563eb",
 ];
+
+const ITUNES_GENRE_TERMS: Record<TrackGenre, string> = {
+  Pop: "pop hits",
+  Rock: "rock hits",
+  "Hip-Hop": "hip hop hits",
+  Electronic: "electronic dance",
+  Jazz: "jazz standards",
+  "R&B": "r&b hits",
+};
 
 function isTrackGenre(value: string | null): value is TrackGenre {
   return GENRES.includes(value as TrackGenre);
@@ -142,6 +154,55 @@ async function findITunesPreviewUrl(title: string, artist: string) {
     }) ?? payload.results?.find((item) => item.previewUrl);
 
   return result?.previewUrl ?? null;
+}
+
+async function searchITunesGenre(genre: TrackGenre) {
+  const params = new URLSearchParams({
+    term: ITUNES_GENRE_TERMS[genre],
+    media: "music",
+    entity: "song",
+    country: "US",
+    limit: "25",
+  });
+
+  const response = await fetch(
+    `https://itunes.apple.com/search?${params.toString()}`,
+    { cache: "no-store" },
+  );
+
+  if (!response.ok) {
+    throw new Error("iTunes preview search failed.");
+  }
+
+  const payload = (await response.json()) as ITunesSearchResponse;
+  const uniqueTracks = new Map<string, Track>();
+
+  for (const [index, item] of (payload.results ?? []).entries()) {
+    if (!item.previewUrl || !item.trackName || !item.artistName) {
+      continue;
+    }
+
+    const id = `itunes-${item.trackId ?? `${item.artistName}-${item.trackName}`}`;
+
+    if (uniqueTracks.has(id)) {
+      continue;
+    }
+
+    uniqueTracks.set(id, {
+      id,
+      title: item.trackName,
+      artist: item.artistName,
+      genre,
+      audioUrl: item.previewUrl,
+      color: TRACK_COLORS[index % TRACK_COLORS.length],
+      artworkUrl: item.artworkUrl100?.replace("100x100", "600x600"),
+      externalUrl: item.collectionViewUrl,
+      source: "spotify",
+      previewProvider: "itunes",
+    });
+  }
+
+  return Array.from(uniqueTracks.values()).slice(0, 20);
 }
 
 async function toGameTrack(
@@ -221,14 +282,31 @@ export async function GET(request: Request) {
       return Response.json({ error: "Invalid genre." }, { status: 400 });
     }
 
-    const accessToken = await getSpotifyAccessToken();
-    const tracks = await searchSpotifyGenre(accessToken, genre);
+    let tracks: Track[] = [];
+
+    try {
+      const accessToken = await getSpotifyAccessToken();
+      tracks = await searchSpotifyGenre(accessToken, genre);
+    } catch (error) {
+      console.error("Spotify search failed", error);
+    }
 
     if (tracks.length < 5) {
+      const fallbackTracks = await searchITunesGenre(genre);
+
+      if (fallbackTracks.length >= 5) {
+        return Response.json({
+          source: "spotify",
+          warning:
+            "Spotify did not return enough playable preview URLs, so playable previews were loaded from iTunes.",
+          tracks: fallbackTracks,
+        });
+      }
+
       return Response.json({
         source: "demo",
         warning:
-          "Spotify did not return enough playable preview URLs for this genre.",
+          "Music preview providers did not return enough playable preview URLs for this genre.",
         tracks: tracksForGenre(genre),
       });
     }
