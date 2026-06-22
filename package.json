@@ -6,11 +6,10 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "build:pages": "NEXT_PUBLIC_DEPLOY_TARGET=github-pages NEXT_PUBLIC_BASE_PATH=/Flaggle NEXT_PUBLIC_ENABLE_SPOTIFY_API=false next build",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern out",
+    "dev": "vinext dev",
+    "build": "vinext build",
+    "start": "vinext start",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
